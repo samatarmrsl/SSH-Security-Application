@@ -12,7 +12,7 @@ executed. The dashboard, firewall response, and block-removal will be completed 
 
 ## Purpose and use cases
 
-The project helps a lab administrator or cybersecurity student:
+The project helps an admin:
 
 - Collect successful and failed OpenSSH authentication events.
 - Collect only metadata summaries for TCP connections to the configured SSH
@@ -30,6 +30,8 @@ The project helps a lab administrator or cybersecurity student:
 
 The application does not collect attempted passwords, private keys, SSH payload
 contents, or decrypted traffic.
+
+The project is not intended to replace existing solutions, it is merely a tool that can be used on your environment for protection purposes similar to how an AV would function.
 
 ## Work completed so far
 
