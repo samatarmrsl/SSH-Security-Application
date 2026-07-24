@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timezone
 
 from ssh_guard.constants import (
@@ -47,11 +48,38 @@ def test_schema_and_pragmas_are_initialized(tmp_path) -> None:
         }
         foreign_keys = connection.execute("PRAGMA foreign_keys").fetchone()[0]
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
 
     assert tables >= REQUIRED_TABLES
     assert foreign_keys == 1
     assert journal_mode.lower() == "wal"
+    assert "idx_auth_events_fingerprint" in indexes
+    assert "idx_network_events_fingerprint" in indexes
+    assert "idx_detections_evidence_fingerprint" in indexes
     assert database.check_health() is True
+
+
+def test_database_health_check_fails_closed_on_query_error(tmp_path, monkeypatch) -> None:
+    database = build_database(tmp_path)
+
+    class BrokenConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query):
+            raise sqlite3.OperationalError("simulated health-query failure")
+
+    monkeypatch.setattr(database, "connection", lambda: BrokenConnection())
+
+    assert database.check_health() is False
 
 
 def test_auth_event_and_ip_profile_round_trip(tmp_path) -> None:

@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS auth_events (
     success INTEGER CHECK (success IN (0, 1) OR success IS NULL),
     process_id INTEGER,
     raw_message TEXT NOT NULL,
-    parse_status TEXT NOT NULL
+    parse_status TEXT NOT NULL,
+    fingerprint TEXT
 );
 
 CREATE TABLE IF NOT EXISTS network_events (
@@ -22,7 +23,8 @@ CREATE TABLE IF NOT EXISTS network_events (
     tcp_flags TEXT NOT NULL,
     interface_name TEXT NOT NULL,
     sensor_name TEXT NOT NULL,
-    parse_status TEXT NOT NULL
+    parse_status TEXT NOT NULL,
+    fingerprint TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ip_profiles (
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS ip_profiles (
     last_success_at TEXT,
     detection_count INTEGER NOT NULL DEFAULT 0,
     block_count INTEGER NOT NULL DEFAULT 0,
+    current_block_status TEXT,
     notes TEXT
 );
 
@@ -58,7 +61,8 @@ CREATE TABLE IF NOT EXISTS detections (
     classification TEXT NOT NULL,
     decision TEXT NOT NULL,
     decision_reason TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    evidence_fingerprint TEXT
 );
 
 CREATE TABLE IF NOT EXISTS detection_auth_events (

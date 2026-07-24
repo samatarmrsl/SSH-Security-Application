@@ -7,6 +7,7 @@
   },
   "network_sensor": {
     "interface": "enp0s8",
+    "tcpdump_path": "/usr/bin/tcpdump",
     "protected_ipv4_addresses": [
       "192.168.56.10"
     ]

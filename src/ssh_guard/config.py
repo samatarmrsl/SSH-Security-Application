@@ -59,6 +59,10 @@ class NetworkSensorConfig:
     enabled: bool
     interface: str
     ssh_port: int
+    tcpdump_path: str
+    snapshot_length_bytes: int
+    restart_delay_seconds: int
+    max_restart_attempts: int
     protected_ipv4_addresses: tuple[str, ...]
 
 
@@ -233,6 +237,24 @@ def _build_settings(data: dict[str, Any]) -> Settings:
             interface=_required_string(network_sensor, "interface", "network_sensor"),
             ssh_port=_bounded_int(
                 network_sensor, "ssh_port", "network_sensor", minimum=1, maximum=65535
+            ),
+            tcpdump_path=_required_string(network_sensor, "tcpdump_path", "network_sensor"),
+            snapshot_length_bytes=_bounded_int(
+                network_sensor,
+                "snapshot_length_bytes",
+                "network_sensor",
+                minimum=40,
+                maximum=262144,
+            ),
+            restart_delay_seconds=_nonnegative_int(
+                network_sensor,
+                "restart_delay_seconds",
+                "network_sensor",
+            ),
+            max_restart_attempts=_nonnegative_int(
+                network_sensor,
+                "max_restart_attempts",
+                "network_sensor",
             ),
             protected_ipv4_addresses=tuple(addresses),
         ),

@@ -31,6 +31,7 @@ class AuthenticationEvent:
     process_id: int | None
     raw_message: str
     parse_status: ParseStatus
+    deduplication_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class NetworkEvent:
     interface_name: str
     sensor_name: str
     parse_status: ParseStatus
+    deduplication_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ class Detection:
     decision_reason: str
     created_at: datetime
     risk_breakdown: dict[str, int] = field(default_factory=dict)
+    evidence_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,41 @@ class AuthenticationParseResult:
     status: ParseStatus
     event: AuthenticationEvent | None
     error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class NetworkParseResult:
+    status: ParseStatus
+    event: NetworkEvent | None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class CorrelationResult:
+    source_ip: str
+    window_start: datetime
+    window_end: datetime
+    failed_count: int
+    successful_count: int
+    invalid_user_count: int
+    unique_usernames: int
+    network_connection_count: int
+    attempt_rate: float
+    first_event_time: datetime | None
+    last_event_time: datetime | None
+    recent_success: bool
+    previous_detection_count: int
+    previous_block_count: int
+    allowlisted: bool
+    currently_blocked: bool
+    auth_event_ids: tuple[str, ...] = ()
+    network_event_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RiskScoreResult:
+    score: int
+    breakdown: dict[str, int]
 
 
 @dataclass(frozen=True)

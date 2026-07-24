@@ -51,9 +51,48 @@ class Database:
             schema = SCHEMA_PATH.read_text(encoding="utf-8")
             with self.connect() as connection:
                 connection.executescript(schema)
+                self._apply_migrations(connection)
                 connection.commit()
         except (OSError, sqlite3.Error) as exc:
             raise DatabaseError(f"could not initialize SQLite database: {exc}") from exc
+
+    @staticmethod
+    def _apply_migrations(connection: sqlite3.Connection) -> None:
+        """Add Stage 3-4 columns when upgrading a Stage 1-2 database."""
+
+        migrations = {
+            "auth_events": {"fingerprint": "TEXT"},
+            "network_events": {"fingerprint": "TEXT"},
+            "ip_profiles": {"current_block_status": "TEXT"},
+            "detections": {"evidence_fingerprint": "TEXT"},
+        }
+        for table, columns in migrations.items():
+            existing = {
+                row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for column, definition in columns.items():
+                if column not in existing:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_events_fingerprint
+            ON auth_events(fingerprint) WHERE fingerprint IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_network_events_fingerprint
+            ON network_events(fingerprint) WHERE fingerprint IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_detections_evidence_fingerprint
+            ON detections(evidence_fingerprint)
+            WHERE evidence_fingerprint IS NOT NULL
+            """
+        )
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -83,5 +122,5 @@ class Database:
             with self.connection() as connection:
                 row = connection.execute("SELECT 1 AS healthy").fetchone()
             return bool(row and row["healthy"] == 1)
-        except DatabaseError:
+        except (DatabaseError, sqlite3.Error):
             return False

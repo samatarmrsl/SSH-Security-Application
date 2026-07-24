@@ -8,7 +8,9 @@ from dataclasses import replace
 from ssh_guard.audit import AuditService
 from ssh_guard.collectors.auth_parser import parse_authentication_line
 from ssh_guard.constants import ParseStatus
+from ssh_guard.core.deduplication import EventDeduplicator
 from ssh_guard.core.ip_validation import validate_ip_address
+from ssh_guard.core.normalization import normalize_authentication_event
 from ssh_guard.db.repositories import (
     AuthenticationEventRepository,
     IPProfileRepository,
@@ -30,12 +32,14 @@ class AuthenticationIngestor:
         ip_profiles: IPProfileRepository,
         audit: AuditService,
         protected_addresses: Iterable[str] = (),
+        deduplicator: EventDeduplicator | None = None,
     ) -> None:
         self.auth_events = auth_events
         self.parser_errors = parser_errors
         self.ip_profiles = ip_profiles
         self.audit = audit
         self.protected_addresses = tuple(protected_addresses)
+        self.deduplicator = deduplicator or EventDeduplicator()
 
     def process_line(self, line: str) -> AuthenticationEvent | None:
         parse_result = parse_authentication_line(line)
@@ -60,8 +64,19 @@ class AuthenticationIngestor:
             )
             return None
 
-        normalized_event = replace(event, source_ip=validation.normalized_ip)
-        self.auth_events.insert(normalized_event)
+        normalized_event = normalize_authentication_event(
+            replace(event, source_ip=validation.normalized_ip)
+        )
+        fingerprint = normalized_event.deduplication_key
+        if fingerprint is None:
+            raise ValueError("normalized authentication event has no fingerprint")
+        if self.deduplicator.is_duplicate(
+            fingerprint,
+            observed_at=normalized_event.collected_at,
+        ):
+            return None
+        if not self.auth_events.insert(normalized_event):
+            return None
         self.ip_profiles.observe_authentication(normalized_event, validation.category)
         return normalized_event
 

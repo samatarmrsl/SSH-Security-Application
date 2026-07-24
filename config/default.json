@@ -27,6 +27,10 @@
     "enabled": true,
     "interface": "enp0s8",
     "ssh_port": 22,
+    "tcpdump_path": "/usr/bin/tcpdump",
+    "snapshot_length_bytes": 96,
+    "restart_delay_seconds": 5,
+    "max_restart_attempts": 3,
     "protected_ipv4_addresses": []
   },
   "database": {

@@ -23,6 +23,8 @@
 
 ## Current implementation boundary
 
-Stages 1 and 2 cover the project foundation and authentication evidence. Network
-collection, detection, scoring, firewall enforcement, expiration, reconciliation,
-and the Streamlit dashboard belong to later explicitly approved stages.
+Stages 1 through 4 cover the project foundation, authentication and network
+evidence, normalization, deduplication, profiles, allowlisting, correlation,
+scoring, classification, and explainable decisions. Firewall enforcement,
+expiration, reconciliation, and the Streamlit dashboard belong to later
+explicitly approved stages.

@@ -13,6 +13,8 @@ from ssh_guard.constants import (
     AuthenticationEventType,
     AuthenticationResult,
     BlockStatus,
+    Decision,
+    DetectionClassification,
     HealthState,
     IPAddressCategory,
     ParseStatus,
@@ -71,19 +73,21 @@ class AuthenticationEventRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def insert(self, event: AuthenticationEvent) -> None:
+    def insert(self, event: AuthenticationEvent) -> bool:
         success = {
             AuthenticationResult.SUCCESS: 1,
             AuthenticationResult.FAILURE: 0,
             AuthenticationResult.NEUTRAL: None,
         }[event.authentication_result]
         with self.database.transaction() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO auth_events (
                     event_id, event_time, collected_at, source_ip, username,
-                    event_type, success, process_id, raw_message, parse_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    event_type, success, process_id, raw_message, parse_status,
+                    fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     event.event_id,
@@ -96,8 +100,10 @@ class AuthenticationEventRepository:
                     event.process_id,
                     event.raw_message,
                     event.parse_status.value,
+                    event.deduplication_key,
                 ),
             )
+        return cursor.rowcount == 1
 
     def get(self, event_id: str) -> AuthenticationEvent | None:
         with self.database.connection() as connection:
@@ -156,6 +162,50 @@ class AuthenticationEventRepository:
             row = connection.execute("SELECT COUNT(*) AS count FROM auth_events").fetchone()
         return int(row["count"])
 
+    def list_window(
+        self,
+        *,
+        source_ip: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[AuthenticationEvent]:
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM auth_events
+                WHERE source_ip = ? AND event_time >= ? AND event_time <= ?
+                ORDER BY event_time, event_id
+                """,
+                (source_ip, to_iso(window_start), to_iso(window_end)),
+            ).fetchall()
+        return [_auth_event_from_row(row) for row in rows]
+
+    def list_failure_sources(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[str]:
+        failure_types = (
+            AuthenticationEventType.FAILED_PASSWORD.value,
+            AuthenticationEventType.FAILED_PASSWORD_INVALID_USER.value,
+        )
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT source_ip FROM auth_events
+                WHERE event_time >= ? AND event_time <= ?
+                  AND event_type IN (?, ?)
+                ORDER BY source_ip
+                """,
+                (
+                    to_iso(window_start),
+                    to_iso(window_end),
+                    *failure_types,
+                ),
+            ).fetchall()
+        return [row["source_ip"] for row in rows]
+
 
 def _auth_event_from_row(row: sqlite3.Row) -> AuthenticationEvent:
     success = row["success"]
@@ -181,6 +231,7 @@ def _auth_event_from_row(row: sqlite3.Row) -> AuthenticationEvent:
         process_id=row["process_id"],
         raw_message=row["raw_message"],
         parse_status=ParseStatus(row["parse_status"]),
+        deduplication_key=row["fingerprint"],
     )
 
 
@@ -188,15 +239,16 @@ class NetworkEventRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def insert(self, event: NetworkEvent) -> None:
+    def insert(self, event: NetworkEvent) -> bool:
         with self.database.transaction() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO network_events (
                     event_id, event_time, collected_at, source_ip, destination_ip,
                     source_port, destination_port, tcp_flags, interface_name,
-                    sensor_name, parse_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sensor_name, parse_status, fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     event.event_id,
@@ -210,8 +262,79 @@ class NetworkEventRepository:
                     event.interface_name,
                     event.sensor_name,
                     event.parse_status.value,
+                    event.deduplication_key,
                 ),
             )
+        return cursor.rowcount == 1
+
+    def get(self, event_id: str) -> NetworkEvent | None:
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM network_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        return _network_event_from_row(row) if row else None
+
+    def list_window(
+        self,
+        *,
+        source_ip: str,
+        window_start: datetime,
+        window_end: datetime,
+        destination_port: int | None = None,
+    ) -> list[NetworkEvent]:
+        with self.database.connection() as connection:
+            if destination_port is None:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM network_events
+                    WHERE source_ip = ? AND event_time >= ? AND event_time <= ?
+                    ORDER BY event_time, event_id
+                    """,
+                    (source_ip, to_iso(window_start), to_iso(window_end)),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM network_events
+                    WHERE source_ip = ? AND event_time >= ? AND event_time <= ?
+                      AND destination_port = ?
+                    ORDER BY event_time, event_id
+                    """,
+                    (
+                        source_ip,
+                        to_iso(window_start),
+                        to_iso(window_end),
+                        destination_port,
+                    ),
+                ).fetchall()
+        return [_network_event_from_row(row) for row in rows]
+
+    def count(self) -> int:
+        with self.database.connection() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM network_events").fetchone()
+        return int(row["count"])
+
+
+def _network_event_from_row(row: sqlite3.Row) -> NetworkEvent:
+    event_time = from_iso(row["event_time"])
+    collected_at = from_iso(row["collected_at"])
+    if event_time is None or collected_at is None:
+        raise ValueError("stored network event has missing timestamps")
+    return NetworkEvent(
+        event_id=row["event_id"],
+        event_time=event_time,
+        collected_at=collected_at,
+        source_ip=row["source_ip"],
+        destination_ip=row["destination_ip"],
+        source_port=row["source_port"],
+        destination_port=row["destination_port"],
+        tcp_flags=row["tcp_flags"],
+        interface_name=row["interface_name"],
+        sensor_name=row["sensor_name"],
+        parse_status=ParseStatus(row["parse_status"]),
+        deduplication_key=row["fingerprint"],
+    )
 
 
 class IPProfileRepository:
@@ -274,6 +397,42 @@ class IPProfileRepository:
             ).fetchone()
         return dict(row) if row else None
 
+    def observe_network(self, event: NetworkEvent, category: IPAddressCategory) -> None:
+        event_time = to_iso(event.event_time)
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO ip_profiles (
+                    source_ip, ip_category, first_seen, last_seen
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_ip) DO UPDATE SET
+                    ip_category = excluded.ip_category,
+                    last_seen = CASE
+                        WHEN excluded.last_seen > ip_profiles.last_seen
+                        THEN excluded.last_seen ELSE ip_profiles.last_seen
+                    END
+                """,
+                (event.source_ip, category.value, event_time, event_time),
+            )
+
+    def increment_detection_count(self, source_ip: str) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE ip_profiles
+                SET detection_count = detection_count + 1
+                WHERE source_ip = ?
+                """,
+                (source_ip,),
+            )
+
+    def set_current_block_status(self, source_ip: str, status: str | None) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE ip_profiles SET current_block_status = ? WHERE source_ip = ?",
+                (status, source_ip),
+            )
+
 
 class DetectionRepository:
     def __init__(self, database: Database) -> None:
@@ -285,9 +444,9 @@ class DetectionRepository:
         *,
         auth_event_ids: tuple[str, ...] = (),
         network_event_ids: tuple[str, ...] = (),
-    ) -> None:
+    ) -> bool:
         with self.database.transaction() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO detections (
                     detection_id, source_ip, window_start, window_end,
@@ -295,8 +454,9 @@ class DetectionRepository:
                     unique_username_count, network_event_count, attempt_rate,
                     recent_success, previous_detection_count, previous_block_count,
                     allowlisted, risk_score, risk_breakdown, classification,
-                    decision, decision_reason, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    decision, decision_reason, created_at, evidence_fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     detection.detection_id,
@@ -319,22 +479,77 @@ class DetectionRepository:
                     detection.decision.value,
                     detection.decision_reason,
                     to_iso(detection.created_at),
+                    detection.evidence_fingerprint,
                 ),
             )
-            connection.executemany(
-                """
-                INSERT INTO detection_auth_events (detection_id, auth_event_id)
-                VALUES (?, ?)
-                """,
-                ((detection.detection_id, event_id) for event_id in auth_event_ids),
-            )
-            connection.executemany(
-                """
-                INSERT INTO detection_network_events (detection_id, network_event_id)
-                VALUES (?, ?)
-                """,
-                ((detection.detection_id, event_id) for event_id in network_event_ids),
-            )
+            if cursor.rowcount == 1:
+                connection.executemany(
+                    """
+                    INSERT INTO detection_auth_events (detection_id, auth_event_id)
+                    VALUES (?, ?)
+                    """,
+                    ((detection.detection_id, event_id) for event_id in auth_event_ids),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO detection_network_events (detection_id, network_event_id)
+                    VALUES (?, ?)
+                    """,
+                    ((detection.detection_id, event_id) for event_id in network_event_ids),
+                )
+        return cursor.rowcount == 1
+
+    def get(self, detection_id: str) -> Detection | None:
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM detections WHERE detection_id = ?",
+                (detection_id,),
+            ).fetchone()
+        return _detection_from_row(row) if row else None
+
+    def list_recent(self, limit: int = 100) -> list[Detection]:
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM detections ORDER BY created_at DESC LIMIT ?",
+                (_limit(limit),),
+            ).fetchall()
+        return [_detection_from_row(row) for row in rows]
+
+    def count(self) -> int:
+        with self.database.connection() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM detections").fetchone()
+        return int(row["count"])
+
+
+def _detection_from_row(row: sqlite3.Row) -> Detection:
+    window_start = from_iso(row["window_start"])
+    window_end = from_iso(row["window_end"])
+    created_at = from_iso(row["created_at"])
+    if window_start is None or window_end is None or created_at is None:
+        raise ValueError("stored detection has missing timestamps")
+    return Detection(
+        detection_id=row["detection_id"],
+        source_ip=row["source_ip"],
+        window_start=window_start,
+        window_end=window_end,
+        failed_count=row["failed_count"],
+        successful_count=row["successful_count"],
+        invalid_user_count=row["invalid_user_count"],
+        unique_usernames=row["unique_username_count"],
+        network_connection_count=row["network_event_count"],
+        attempt_rate=row["attempt_rate"],
+        recent_success=bool(row["recent_success"]),
+        previous_detection_count=row["previous_detection_count"],
+        previous_block_count=row["previous_block_count"],
+        allowlisted=bool(row["allowlisted"]),
+        risk_score=row["risk_score"],
+        classification=DetectionClassification(row["classification"]),
+        decision=Decision(row["decision"]),
+        decision_reason=row["decision_reason"],
+        created_at=created_at,
+        risk_breakdown=_json_load(row["risk_breakdown"]),
+        evidence_fingerprint=row["evidence_fingerprint"],
+    )
 
 
 class AllowlistRepository:

@@ -16,6 +16,9 @@ def test_default_configuration_is_safe() -> None:
     assert settings.detection.suspicious_failure_threshold == 5
     assert settings.detection.blocking_failure_threshold == 10
     assert settings.network_sensor.ssh_port == 22
+    assert settings.network_sensor.tcpdump_path == "/usr/bin/tcpdump"
+    assert settings.network_sensor.snapshot_length_bytes == 96
+    assert settings.network_sensor.max_restart_attempts == 3
     assert settings.database.wal_mode is True
 
 
@@ -64,6 +67,10 @@ def test_local_file_is_merged_over_defaults(tmp_path) -> None:
         (
             {"network_sensor": {"protected_ipv4_addresses": ["not-an-ip"]}},
             "protected_ipv4_addresses",
+        ),
+        (
+            {"network_sensor": {"snapshot_length_bytes": 20}},
+            "snapshot_length_bytes",
         ),
     ],
 )
