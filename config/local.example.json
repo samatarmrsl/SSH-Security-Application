@@ -1,0 +1,20 @@
+{
+  "application": {
+    "environment": "ubuntu-lab"
+  },
+  "authentication_sensor": {
+    "systemd_unit": "ssh.service"
+  },
+  "network_sensor": {
+    "interface": "enp0s8",
+    "protected_ipv4_addresses": [
+      "192.168.56.10"
+    ]
+  },
+  "database": {
+    "path": "data/ssh_guard.db"
+  },
+  "dashboard": {
+    "host": "192.168.56.10"
+  }
+}

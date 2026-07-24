@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssh-brute-guard"
+version = "0.1.0"
+description = "Multi-source SSH brute-force detection and temporary blocking for an authorized Ubuntu lab"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "SSH Security Application contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+dashboard = [
+  "pandas>=2.0",
+  "streamlit>=1.32",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+ssh-guard = "ssh_guard.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["ssh_guard"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
