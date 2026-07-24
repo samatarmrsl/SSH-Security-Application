@@ -2,13 +2,9 @@
 
 SSH Brute Guard is a defensive Python application that collects OpenSSH
 authentication records and TCP destination-port 22 metadata, correlates both
-evidence sources by IP address and time, and creates explainable brute-force
-risk detections.
+evidence sources by IP address and time, and creates a solution to prevent further attempts by blocking the ip.
 
-It is intended for an authorized Ubuntu virtual lab and the SPR888 SSH Security
-Monitoring and Response project. Use it only on systems and networks you own or
-have explicit permission to test.
-
+## Current Progress 
 Stages 1–4 are complete. The application can collect, normalize, deduplicate,
 store, correlate, score, classify, and audit evidence. Simulation Mode is the
 safe default: a high-risk result says `WOULD_BLOCK`, but no firewall command is
