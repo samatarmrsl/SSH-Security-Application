@@ -8,7 +8,7 @@ evidence sources by IP address and time, and creates a solution to prevent furth
 Stages 1–4 are complete. The application can collect, normalize, deduplicate,
 store, correlate, score, classify, and audit evidence. Simulation Mode is the
 safe default: a high-risk result says `WOULD_BLOCK`, but no firewall command is
-executed. The dashboard, firewall response, and block-removal stages remain.
+executed. The dashboard, firewall response, and block-removal will be completed next.
 
 ## Purpose and use cases
 
