@@ -2,7 +2,7 @@
 
 SSH Brute Guard is a defensive Python application that collects OpenSSH
 authentication records and TCP destination-port 22 metadata, correlates both
-evidence sources by IP address and time, and creates a solution to prevent further attempts by blocking the ip.
+evidence sources by IP address and time, and creates a solution to prevent further attempts by blocking the IP.
 
 ## Current Progress 
 Stages 1–4 are complete. The application can collect, normalize, deduplicate,
