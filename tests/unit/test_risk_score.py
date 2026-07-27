@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssh_guard.core.risk_score import calculate_risk_score
-from ssh_guard.models import CorrelationResult
+from ssh_security_app.core.risk_score import calculate_risk_score
+from ssh_security_app.models import CorrelationResult
 
 
 def correlation(**overrides) -> CorrelationResult:

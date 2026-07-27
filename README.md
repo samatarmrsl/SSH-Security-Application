@@ -1,18 +1,28 @@
-# SSH Brute Guard
+# SSH Security Application
 
-SSH Brute Guard is a defensive Python application that collects OpenSSH
+SSH Security Application is a defensive Python application that collects OpenSSH
 authentication records and TCP destination-port 22 metadata, correlates both
 evidence sources by IP address and time, and creates explainable brute-force
 risk detections.
+
+This is an original implementation. It does **not** install, import, wrap, or
+invoke the existing SSHGuard/`sshguard` product. To avoid that naming
+collision, this project uses the name **SSH Security Application**, the Python
+package `ssh_security_app`, the command `ssh-security-app`, and the dedicated
+iptables chain `SSH_SECURITY_APP`.
 
 It is intended for an authorized Ubuntu virtual lab and the SPR888 SSH Security
 Monitoring and Response project. Use it only on systems and networks you own or
 have explicit permission to test.
 
-Stages 1–4 are complete. The application can collect, normalize, deduplicate,
-store, correlate, score, classify, and audit evidence. Simulation Mode is the
-safe default: a high-risk result says `WOULD_BLOCK`, but no firewall command is
-executed. The dashboard, firewall response, and block-removal stages remain.
+Stages 1–8 are implemented. The application collects, normalizes, deduplicates,
+stores, correlates, scores, classifies, displays, and audits evidence; creates
+guarded temporary blocks; automatically expires them; processes SQLite-backed
+manual-unblock requests; reconciles database and firewall state; and provides
+managed services and a complete dashboard. Simulation Mode remains the safe
+default: a high-risk result says `WOULD_BLOCK`, but no firewall command is
+executed unless Automatic Response Mode and an explicit response path are
+selected.
 
 ## Purpose and use cases
 
@@ -30,6 +40,13 @@ The project helps a lab administrator or cybersecurity student:
 - Suppress unsafe responses for allowlisted, ineligible, already blocked, or
   insufficiently corroborated sources.
 - Record evidence, detections, decisions, health, and audit history in SQLite.
+- Review detections, active blocks, allowlist history, action requests, audits,
+  and component health in a project-owned, unprivileged web dashboard.
+- In explicitly enabled Automatic Response Mode, add a validated high-risk IPv4
+  source to the dedicated project firewall chain for automatic expiration.
+- Request an early manual unblock through SQLite without giving the dashboard
+  firewall capabilities.
+- Reconcile active SQLite blocks with project-owned rules after worker startup.
 - Reproduce the pipeline safely with sanitized fixture files.
 
 The application does not collect attempted passwords, private keys, SSH payload
@@ -39,7 +56,7 @@ contents, or decrypted traffic.
 
 ### Stage 1 — Foundation
 
-- Python `src` package layout and `ssh-guard` command-line entry point.
+- Python `src` package layout and `ssh-security-app` command-line entry point.
 - JSON defaults with an ignored local override file.
 - Strict validation for operating modes, paths, thresholds, ports, interfaces,
   protected addresses, and numeric ranges.
@@ -106,7 +123,7 @@ contents, or decrypted traffic.
   | 50–69 | Suspicious |
   | 70–100 | High Risk |
 
-- Decision logic for store, display, log, suppress, `WOULD_BLOCK`, and future
+- Decision logic for store, display, log, suppress, `WOULD_BLOCK`, and guarded
   `BLOCK` results.
 - Safety gates for failure count, risk threshold, address eligibility,
   allowlisting, existing blocks, TCP/22 corroboration, database health, and both
@@ -117,18 +134,97 @@ contents, or decrypted traffic.
 - Evidence-to-detection links, duplicate-detection prevention, IP-profile
   detection counts, detection audits, CLI commands, and end-to-end tests.
 
-## Work remaining
+### Stage 5 — Safe modes and detection dashboard
 
-| Stage | Remaining work |
-|---|---|
-| 5 — Safe modes and initial dashboard | Complete the operational services for Simulation and Log Only modes and build the first read-only detection dashboard. |
-| 6 — Firewall response | Build the dedicated-chain command layer, initialize and verify `SSH_BRUTE_GUARD`, manage rules, and guard Automatic Response Mode. |
-| 7 — Block removal | Add expiration, manual-unblock requests, startup reconciliation, recovery, and cleanup workers. |
-| 8 — Final dashboard and validation | Add block, allowlist, audit, and health pages; systemd units; live-lab validation; and final operational documentation. |
+- Persistent operating-mode state with audited transitions between Simulation,
+  Log Only, and Automatic Response modes.
+- Simulation Mode runs the complete detection pipeline, reports how long a
+  source would be blocked, and performs no firewall operation.
+- Log Only Mode collects, correlates, scores, stores, audits, and displays
+  detections without changing the firewall.
+- Dedicated risk-score, block-decision, and detection-creation audit records.
+- A read-only first-party overview showing configured mode, sensor/firewall
+  health, evidence totals, detection totals, block totals, and recent parser
+  errors.
+- A detections page showing source context, counts, rate, score,
+  classification, allowlist state, decision, and creation time.
+- A pure dashboard data service that is tested without requiring a browser.
+- The dashboard refuses to run as root and never imports or calls the firewall
+  manager.
 
-Stages 1–4 do not invoke `iptables`, add rules, or remove rules. Even if
-`response.mode` is set to `automatic_response`, no current component executes a
-firewall decision. That capability is intentionally deferred until Stages 6–7.
+### Stage 6 — Guarded firewall response
+
+- Strict iptables command construction using argument arrays and `shell=False`.
+- Configurable absolute iptables path, command timeout, SSH port, and dedicated
+  `SSH_SECURITY_APP` chain.
+- Idempotent project-chain creation and idempotent TCP/22 jump creation from
+  `INPUT`.
+- Read-only firewall readiness inspection and project-chain rule listing.
+- Exact duplicate checks, insertion, confirmation, deletion, and confirmation
+  for source-specific TCP/22 DROP rules.
+- No flush commands, policy changes, unrelated-chain mutation, shell command
+  strings, or unvalidated source IPs.
+- A block manager that independently revalidates eligibility, allowlisting,
+  protected server addresses, active database blocks, and existing firewall
+  rules.
+- Confirmed temporary block storage, expiration calculation, IP-profile block
+  history, block audits, and compensating firewall deletion if database
+  activation fails.
+- Automatic Response requires all Stage 4 safety gates, healthy collectors and
+  database, a ready firewall manager, the chain and jump, Automatic Response
+  Mode, and the explicit `--apply-response` CLI flag.
+- Unit tests use an in-memory iptables runner. Integration tests prove the
+  Automatic Response pipeline without changing the host firewall.
+
+### Stage 7 — Block removal and reconciliation
+
+- A dashboard/CLI request service that validates an active block and inserts
+  only a `Pending` SQLite manual-unblock request.
+- A separate response worker that revalidates the request, source, block, and
+  exact project rule before removal.
+- Automatic expiration cycles that confirm/delete exact rules, store
+  `Expired`, `removed_at`, and `Automatic`, and leave failures active for retry.
+- Startup reconciliation for consistent active state, expired state, missing
+  rules, and unknown project-chain rules.
+- Unknown rules are audited and never automatically deleted.
+- A recovery helper that removes recognized exact project rules, the exact
+  TCP/SSH jump, and the empty chain; it refuses unknown or duplicate rules.
+
+### Stage 8 — Final dashboard, services, tests, and documentation
+
+- Dashboard pages for overview, detections, active blocks with time remaining,
+  allowlist management/history, security audit/action history, and health.
+- Project-owned responsive HTML, CSS, and JavaScript served by Python's standard
+  library; no Streamlit, pandas, CDN, or external dashboard runtime.
+- Same-origin JSON endpoints with CSRF protection, request-size limits,
+  restrictive response headers, and no direct firewall API.
+- The dashboard remains a normal-user process and has no firewall execution
+  path.
+- A controller that starts collectors, periodic correlation, startup
+  reconciliation, expiration, and action-request processing; handles signals;
+  stops subprocesses; and records health.
+- Hardened main-application and dashboard systemd unit templates.
+- Automated expiration, retry, manual-unblock, reconciliation, cleanup,
+  dashboard, and shutdown tests.
+- Architecture, database, testing, recovery, setup, live-validation, and
+  troubleshooting documentation.
+
+## Remaining validation
+
+The code and automated tests for all eight stages are complete. Local acceptance
+testing has also covered a clean wheel installation, packaged defaults/assets,
+fresh database startup, fixture replay and deduplication, the host's real
+OpenSSH journal and tcpdump processes, managed-service shutdown, dashboard
+restart/persistence, and the complete real-iptables block, automatic-expiry,
+manual-unblock, reconciliation, and cleanup lifecycle inside an isolated
+network namespace.
+
+The remaining environment-specific test is the external-client demonstration:
+install/start the capability-limited systemd service, generate controlled
+failed SSH attempts from the disposable client, and observe the two-minute rule
+on the host firewall. Those steps require the operator's sudo authentication
+and the verified disposable-client address; the exact commands are documented
+below.
 
 ## Current data flow
 
@@ -154,15 +250,29 @@ OpenSSH journal or auth fixture       tcpdump TCP/22 summaries or fixture
                 five-minute correlation by source IP
                                  |
                                  v
-                 risk score + classification + decision
+                risk score + classification + decision
+                                 |
+          +----------------------+----------------------+
+          |                      |                      |
+          v                      v                      v
+  Simulation: WOULD_BLOCK  Log Only: store/log  Automatic Response
+          |                      |                      |
+          |                      |                      v
+          |                      |              all safety gates
+          |                      |                      |
+          |                      |                      v
+          |                      |         SSH_SECURITY_APP exact rule
+          |                      |                      |
+          +----------------------+----------------------+
+                                 |
+                                 v
+             detections + evidence links + audit + IP profile
                                  |
                   +--------------+--------------+
-                  |              |              |
-                  v              v              v
-             detections   detection_evidence  audit_log
-                  |
-                  v
-             ip_profiles
+                  |                             |
+                  v                             v
+       unprivileged Stage 8 dashboard   response worker
+           SQLite manual request        expiration/reconciliation
 ```
 
 ## Repository layout
@@ -176,16 +286,31 @@ SSH-Security-Application/
 ├── config/
 │   ├── default.json
 │   └── local.example.json
+├── docs/
+│   ├── architecture.md
+│   ├── database.md
+│   ├── recovery.md
+│   └── testing.md
 ├── data/
 │   └── .gitkeep
 ├── logs/
 │   └── .gitkeep
 ├── scripts/
+│   ├── cleanup_firewall.py
 │   ├── initialize_database.py
+│   ├── initialize_firewall.py
 │   ├── run_auth_collector.py
+│   ├── run_dashboard.py
+│   ├── run_detection.py
 │   ├── run_network_collector.py
-│   └── run_detection.py
-├── src/ssh_guard/
+│   ├── setup_live_lab.py
+│   └── setup_test_environment.py
+├── systemd/
+│   ├── ssh-security-app-firewall.service
+│   ├── ssh-security-app-tmpfiles.conf
+│   ├── ssh-security-app.service
+│   └── ssh-security-app-dashboard.service
+├── src/ssh_security_app/
 │   ├── collectors/
 │   │   ├── auth_ingestor.py
 │   │   ├── auth_journal.py
@@ -200,12 +325,29 @@ SSH-Security-Application/
 │   │   ├── deduplication.py
 │   │   ├── ip_profiles.py
 │   │   ├── ip_validation.py
+│   │   ├── modes.py
 │   │   ├── normalization.py
 │   │   └── risk_score.py
-│   └── db/
-│       ├── database.py
-│       ├── repositories.py
-│       └── schema.sql
+│   ├── db/
+│   │   ├── database.py
+│   │   ├── repositories.py
+│   │   └── schema.sql
+│   ├── response/
+│   │   ├── action_request_worker.py
+│   │   ├── block_manager.py
+│   │   ├── expiration_worker.py
+│   │   ├── firewall_manager.py
+│   │   ├── reconciliation.py
+│   │   ├── response_worker.py
+│   │   └── rules.py
+│   └── ui/
+│       ├── action_requests.py
+│       ├── dashboard.py
+│       ├── dashboard_data.py
+│       └── static/
+│           ├── app.css
+│           ├── app.js
+│           └── index.html
 └── tests/
     ├── fixtures/
     ├── integration/
@@ -218,6 +360,188 @@ These steps assume Ubuntu 20.04 or newer and Python 3.8 or newer. Run each
 command in order. Commands beginning with `sudo` change host configuration and
 should be run manually only on the authorized lab VM.
 
+### Recommended one-command live-lab installation
+
+`scripts/setup_live_lab.py` replaces the manual production-installation
+sequence with one idempotent entry point. It runs directly with the operating
+system's `python3`; an activated development virtual environment is not
+required. The default invocation is a read-only preview.
+
+For the current authorized lab:
+
+```text
+Security VM: ens37 / 192.168.12.1
+Kali VM:     eth0  / 192.168.12.3
+Dashboard:         http://192.168.12.1:8501/
+SSH:               192.168.12.1:22
+```
+
+Preview everything that will be configured:
+
+```bash
+cd /home/et-1/Documents/SSH-Security-Application
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --client-ip 192.168.12.3
+```
+
+The server address is selected automatically when `ens37` has exactly one IPv4
+address. To require an exact match explicitly, add
+`--server-ip 192.168.12.1`.
+
+Apply the complete installation:
+
+```bash
+cd /home/et-1/Documents/SSH-Security-Application
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --apply \
+  --confirm-firewall-changes
+```
+
+The script asks for sudo once and then:
+
+- validates the interface, server address, disposable-client address, subnet,
+  repository assets, and protected server addresses;
+- installs the Ubuntu packages, starts OpenSSH, and grants only tcpdump's
+  required capture capabilities;
+- detects the host firewall correctly, including the Ubuntu case where
+  `ufw.service` is active but `/etc/ufw/ufw.conf` says `ENABLED=no`;
+- when firewalld is active, adds permanent rich rules limited to
+  `192.168.12.3 -> 192.168.12.1` on TCP ports 22 and 8501; when UFW is actually
+  enabled, adds equivalent interface/source/destination-limited rules;
+- creates the unprivileged `sshsecurityapp` account and protected `/opt`,
+  `/etc`, `/var/lib`, and `/var/log` paths;
+- copies the current source, creates the production virtual environment, and
+  installs the first-party application and dashboard;
+- backs up an existing production configuration, writes a validated Automatic
+  Response configuration, and initializes or upgrades the SQLite database;
+- safely removes recognized stale project rules without flushing INPUT or
+  changing its default policy;
+- installs a capability-limited oneshot firewall service that recreates the
+  dedicated `SSH_SECURITY_APP` chain at boot and cleans it during an orderly
+  stop;
+- installs, enables, and starts the firewall initializer, combined detector and
+  response service, and unprivileged first-party dashboard;
+- verifies the configuration, all services, dedicated chain and INPUT jump,
+  absence of a pre-existing block for the disposable client, SSH listener, and
+  dashboard JSON API.
+
+It does not generate failed logins or launch Hydra. Kali remains separate until
+the infrastructure checks pass.
+
+After installation, run the complete verifier at any time:
+
+```bash
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --verify-only
+```
+
+If the packages are already installed and the package repositories are
+temporarily unavailable, a deliberate reinstall can skip only the apt step:
+
+```bash
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --skip-package-install \
+  --apply \
+  --confirm-firewall-changes
+```
+
+The firewall frontend must not be reloaded casually during a running
+demonstration because firewalld may reconstruct its iptables state. If a
+deliberate firewalld reload occurs, restore and verify the project chain with:
+
+```bash
+sudo systemctl restart ssh-security-app-firewall.service
+sudo systemctl restart ssh-security-app.service
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --verify-only
+```
+
+For an orderly shutdown that removes recognized project-owned rules:
+
+```bash
+sudo systemctl stop ssh-security-app-dashboard.service
+sudo systemctl stop ssh-security-app.service
+sudo systemctl stop ssh-security-app-firewall.service
+```
+
+The longer manual installation below remains available for learning,
+troubleshooting, and environments that intentionally use Simulation or Log
+Only Mode.
+
+### Automated test-environment preparation
+
+After cloning the repository and creating/activating `.venv`, the guarded setup
+helper automates the four immediate test prerequisites:
+
+- detects `ssh.service` or `sshd.service`, installing `openssh-server` first
+  when neither exists, then enables and starts the detected unit;
+- installs the current project into the active virtual environment so the
+  renamed command and first-party dashboard assets are available;
+- grants `cap_net_raw,cap_net_admin` only to the resolved `tcpdump` executable;
+- creates a protected Simulation Mode `config/local.json`, validates it, and
+  initializes its test database.
+
+It must run as the normal project user. It asks for sudo once for an optional
+`apt-get` OpenSSH installation, systemd activation, and `setcap`; it never runs
+Python, the collectors, or the dashboard as root. The lab interface is
+mandatory so the script cannot guess between multiple active interfaces.
+
+Preview the detected plan without changing anything:
+
+```bash
+cd /home/et-1/Documents/SSH-Security-Application
+source .venv/bin/activate
+python -m pip install -e .
+python scripts/setup_test_environment.py --lab-interface ens37
+```
+
+For this VM, the preview should identify `ens37`, `/usr/sbin/tcpdump`,
+`/usr/sbin/iptables`, and protected server addresses `192.168.13.128` and
+`192.168.12.1`.
+
+Apply the plan:
+
+```bash
+python scripts/setup_test_environment.py \
+  --lab-interface ens37 \
+  --apply
+```
+
+The generated test configuration uses
+`data/ssh_security_app_test.db`, `logs/ssh_security_app_test.log`, a
+120-second block duration, and a 10-second expiration check. Commands using
+`--config config/local.json` automatically use those paths. If you run one of
+the direct SQLite examples later in this README, substitute the database path
+shown in your own `config/local.json`; the `inspect` command avoids that
+problem.
+
+The command is idempotent: it preserves an existing `config/local.json`. To
+deliberately replace one, it first makes
+`config/local.json.before-test-setup` and requires:
+
+```bash
+python scripts/setup_test_environment.py \
+  --lab-interface ens37 \
+  --overwrite-config \
+  --apply
+```
+
+Do not use `--overwrite-config` unless you have reviewed the existing local
+configuration and the backup path does not already exist.
+
 ### 1. Update package information
 
 ```bash
@@ -227,7 +551,8 @@ sudo apt update
 ### 2. Install operating-system prerequisites
 
 ```bash
-sudo apt install -y git python3 python3-venv python3-pip openssh-server sqlite3 tcpdump libcap2-bin
+sudo apt install -y git python3 python3-venv python3-pip openssh-server
+sudo apt install -y sqlite3 tcpdump libcap2-bin iptables
 ```
 
 ### 3. Verify the installed tools
@@ -237,6 +562,7 @@ python3 --version
 git --version
 sqlite3 --version
 tcpdump --version
+iptables --version
 systemctl --version
 ```
 
@@ -303,11 +629,8 @@ python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 ```
 
-The optional packages reserved for later dashboard work can be installed with:
-
-```bash
-python -m pip install -e '.[dev,dashboard]'
-```
+The first-party dashboard is included in the base application; it has no
+separate runtime packages to install.
 
 ### 8. Create and edit the local configuration
 
@@ -332,6 +655,8 @@ Set:
   actual unit on the host.
 - `network_sensor.tcpdump_path` if `command -v tcpdump` is not
   `/usr/bin/tcpdump`.
+- `response.iptables_path` if `command -v iptables` is not
+  `/usr/sbin/iptables`.
 - `response.mode` to `simulation` for the safe demonstration.
 
 Save with `Ctrl+O`, press `Enter`, and exit nano with `Ctrl+X`.
@@ -340,7 +665,7 @@ Check the JSON and application-level validation:
 
 ```bash
 python -m json.tool config/local.json
-ssh-guard --config config/local.json validate-config
+ssh-security-app --config config/local.json validate-config
 ```
 
 Expected validation:
@@ -395,7 +720,7 @@ Package upgrades can replace the binary and remove its capabilities. Recheck
 ### 11. Initialize or migrate SQLite
 
 ```bash
-ssh-guard --config config/local.json init-db
+ssh-security-app --config config/local.json init-db
 ```
 
 Equivalent script:
@@ -407,18 +732,18 @@ python scripts/initialize_database.py --config config/local.json
 Expected output:
 
 ```text
-Database initialized: data/ssh_guard.db
+Database initialized: data/ssh_security_app.db
 ```
 
 Verify the database:
 
 ```bash
-ls -lh data/ssh_guard.db
-sqlite3 data/ssh_guard.db ".tables"
-sqlite3 data/ssh_guard.db "PRAGMA journal_mode;"
+ls -lh data/ssh_security_app.db
+sqlite3 data/ssh_security_app.db ".tables"
+sqlite3 data/ssh_security_app.db "PRAGMA journal_mode;"
 ```
 
-Initialization is idempotent and migrates a Stage 1–2 database without deleting
+Initialization is idempotent and migrates an earlier-stage database without deleting
 its evidence.
 
 ## Safe fixture demonstration
@@ -429,19 +754,19 @@ firewall. Start from the initialized database above.
 ### 1. Ingest ten sanitized failed authentications
 
 ```bash
-ssh-guard --config config/local.json collect-auth --fixture tests/fixtures/auth_bruteforce.log
+ssh-security-app --config config/local.json collect-auth --fixture tests/fixtures/auth_bruteforce.log
 ```
 
 ### 2. Ingest the matching sanitized TCP/22 records
 
 ```bash
-ssh-guard --config config/local.json collect-network --fixture tests/fixtures/network_bruteforce.log
+ssh-security-app --config config/local.json collect-network --fixture tests/fixtures/network_bruteforce.log
 ```
 
 ### 3. Run correlation at the fixture's fixed window end
 
 ```bash
-ssh-guard --config config/local.json detect --source-ip 192.168.56.40 --window-end "2026-07-24T08:25:00+00:00"
+ssh-security-app --config config/local.json detect --source-ip 192.168.56.40 --window-end "2026-07-24T08:25:00+00:00"
 ```
 
 The expected result includes:
@@ -458,7 +783,7 @@ firewall change.
 Run all candidate sources in a window instead:
 
 ```bash
-ssh-guard --config config/local.json detect --all --window-end "2026-07-24T08:25:00+00:00"
+ssh-security-app --config config/local.json detect --all --window-end "2026-07-24T08:25:00+00:00"
 ```
 
 Replaying the same fixtures or detection window is safely ignored by the stable
@@ -467,11 +792,11 @@ evidence and detection fingerprints.
 ### Additional parser fixtures
 
 ```bash
-ssh-guard --config config/local.json collect-auth --fixture tests/fixtures/auth_normal.log
-ssh-guard --config config/local.json collect-auth --fixture tests/fixtures/auth_invalid_users.log
-ssh-guard --config config/local.json collect-auth --fixture tests/fixtures/auth_malformed.log
-ssh-guard --config config/local.json collect-network --fixture tests/fixtures/network_normal.log
-ssh-guard --config config/local.json collect-network --fixture tests/fixtures/network_malformed.log
+ssh-security-app --config config/local.json collect-auth --fixture tests/fixtures/auth_normal.log
+ssh-security-app --config config/local.json collect-auth --fixture tests/fixtures/auth_invalid_users.log
+ssh-security-app --config config/local.json collect-auth --fixture tests/fixtures/auth_malformed.log
+ssh-security-app --config config/local.json collect-network --fixture tests/fixtures/network_normal.log
+ssh-security-app --config config/local.json collect-network --fixture tests/fixtures/network_malformed.log
 ```
 
 Equivalent helper scripts:
@@ -482,6 +807,190 @@ python scripts/run_network_collector.py --config config/local.json --fixture tes
 python scripts/run_detection.py --config config/local.json --source-ip 192.168.56.40 --window-end "2026-07-24T08:25:00+00:00"
 ```
 
+## Stage 5 operating modes
+
+Show the configured mode and persist it as the active mode:
+
+```bash
+ssh-security-app --config config/local.json mode-status
+```
+
+To use Log Only Mode, edit the local configuration:
+
+```bash
+nano config/local.json
+```
+
+Set:
+
+```json
+"mode": "log_only"
+```
+
+Then validate and activate it:
+
+```bash
+python -m json.tool config/local.json
+ssh-security-app --config config/local.json validate-config
+ssh-security-app --config config/local.json mode-status
+```
+
+Mode transitions are written to `application_state` and `audit_log`. Log Only
+Mode continues collection, correlation, scoring, storage, audit, and dashboard
+display, but its decision is `LOG_DETECTION` and it never invokes iptables.
+
+Return to the safe default by setting `"mode": "simulation"` and running:
+
+```bash
+ssh-security-app --config config/local.json validate-config
+ssh-security-app --config config/local.json mode-status
+```
+
+## Stage 8 dashboard
+
+The dashboard is implemented in this repository using Python's standard
+library plus owned HTML, CSS, and JavaScript. It has no Streamlit, pandas, CDN,
+or third-party dashboard dependency. Install the current source and launch it
+as the normal application user:
+
+```bash
+python -m pip install -e .
+python scripts/run_dashboard.py --config config/local.json
+```
+
+Open the configured lab-only URL from an authorized workstation. With the
+example configuration:
+
+```text
+http://192.168.56.10:8501
+```
+
+Stop it with `Ctrl+C`. Never launch the dashboard with `sudo`; the launcher
+refuses to run as root. The interface refreshes every five seconds and includes
+Overview, Detections, Active Blocks, Allowlist, Audit Trail, and System Health.
+The dashboard can update the allowlist and queue manual
+unblock requests in SQLite, but it has no firewall execution path. The separate
+response worker performs every firewall validation and mutation.
+
+## Stage 6 firewall response
+
+The default Simulation Mode performs no firewall command. Stage 6 firewall
+mutation requires all of the following:
+
+- `response.mode` is exactly `automatic_response`;
+- the explicit firewall confirmation or response flag is present;
+- the iptables executable is healthy;
+- `SSH_SECURITY_APP` and its TCP/22 `INPUT` jump exist;
+- authentication sensor, network sensor, and SQLite health checks pass;
+- the source is validated, eligible, not protected, not allowlisted, not
+  already blocked, and has matching network evidence;
+- at least ten failures and a score of at least 70 exist in the five-minute
+  window.
+
+### Read-only firewall inspection
+
+Confirm the configured executable:
+
+```bash
+command -v iptables
+python -m json.tool config/local.json
+```
+
+Run the application inspection:
+
+```bash
+ssh-security-app --config config/local.json firewall-status
+```
+
+If the normal account lacks permission to inspect iptables, do not give the
+dashboard firewall capabilities. Use the capability-limited systemd service
+described below, or run only this narrow lab inspection with privilege:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" firewall-status
+```
+
+### Deliberate dedicated-chain initialization
+
+First make a recoverable snapshot:
+
+```bash
+mkdir -p backups
+sudo iptables-save > backups/iptables.before-ssh-security-app.rules
+```
+
+Edit `config/local.json`, change the mode to `automatic_response`, validate it,
+and activate the audited mode:
+
+```bash
+nano config/local.json
+python -m json.tool config/local.json
+ssh-security-app --config config/local.json validate-config
+ssh-security-app --config config/local.json mode-status
+```
+
+The initialization command refuses to mutate the firewall without the explicit
+confirmation flag:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" firewall-init --confirm-firewall-changes
+```
+
+Equivalent helper:
+
+```bash
+sudo "$(pwd)/.venv/bin/python" scripts/initialize_firewall.py --config "$(pwd)/config/local.json" --confirm-firewall-changes
+```
+
+The command creates only `SSH_SECURITY_APP` when missing and adds only its
+TCP/22 jump from `INPUT` when missing. It is idempotent. It never flushes a
+chain, changes a policy, or edits an unrelated rule.
+
+Inspect the result:
+
+```bash
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -C INPUT -p tcp --dport 22 -j SSH_SECURITY_APP
+```
+
+### Deliberate Automatic Response detection
+
+Only after the dedicated chain is ready:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" detect --all --apply-response
+```
+
+Or:
+
+```bash
+sudo "$(pwd)/.venv/bin/python" scripts/run_detection.py --config "$(pwd)/config/local.json" --all --apply-response
+```
+
+Without `--apply-response`, Automatic Response Mode fails closed with
+`SUPPRESS_FIREWALL_UNAVAILABLE`; it does not silently mutate the firewall.
+Use privilege only for these narrowly scoped firewall-manager/detector
+commands. Never run the dashboard or evidence collectors with `sudo`.
+
+After a controlled test, inspect active database blocks and project
+rules:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT block_id, source_ip, blocked_at, expires_at, status FROM blocks ORDER BY blocked_at DESC;"
+sudo iptables -S SSH_SECURITY_APP
+```
+
+Run expiration/manual-request processing independently of the dashboard:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" response-reconcile
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" response-worker
+```
+
+Stop the foreground worker with `Ctrl+C`. Never use `iptables -F`, never change
+a default policy, and never remove rules outside `SSH_SECURITY_APP`.
+
 ## Live evidence collection
 
 Use live commands only inside the authorized Ubuntu lab.
@@ -489,31 +998,31 @@ Use live commands only inside the authorized Ubuntu lab.
 ### Authentication: one-shot
 
 ```bash
-ssh-guard --config config/local.json collect-auth --once
+ssh-security-app --config config/local.json collect-auth --once
 ```
 
 With a custom lookback:
 
 ```bash
-ssh-guard --config config/local.json collect-auth --once --since "-15 minutes"
+ssh-security-app --config config/local.json collect-auth --once --since "-15 minutes"
 ```
 
 ### Authentication: continuous
 
 ```bash
-ssh-guard --config config/local.json collect-auth --follow
+ssh-security-app --config config/local.json collect-auth --follow
 ```
 
 ### TCP/22 metadata: continuous
 
 ```bash
-ssh-guard --config config/local.json collect-network --follow
+ssh-security-app --config config/local.json collect-network --follow
 ```
 
 `collect-network` with no fixture also starts live continuous mode:
 
 ```bash
-ssh-guard --config config/local.json collect-network
+ssh-security-app --config config/local.json collect-network
 ```
 
 Stop either continuous collector cleanly with `Ctrl+C`.
@@ -527,15 +1036,16 @@ source .venv/bin/activate
 ```
 
 Then run the authentication command in one and the network command in the
-other. Stage 8 will add managed systemd services.
+other. For normal operation, use the combined `service` command or the systemd
+units below.
 
 ### Generate one controlled lab event
 
 On a separate authorized lab client:
 
 ```bash
-SSH_GUARD_SERVER_IP=192.168.56.10
-ssh ssh_guard_test_user@"$SSH_GUARD_SERVER_IP"
+SSH_SECURITY_APP_SERVER_IP=192.168.56.10
+ssh ssh_security_app_test_user@"$SSH_SECURITY_APP_SERVER_IP"
 ```
 
 Enter one deliberately incorrect test password, stop with `Ctrl+C`, and return
@@ -544,7 +1054,7 @@ to the server. Do not test an account or host outside the authorized lab.
 Run detection for current evidence:
 
 ```bash
-ssh-guard --config config/local.json detect --all
+ssh-security-app --config config/local.json detect --all
 ```
 
 The default suspicious threshold is five failures in five minutes, so one
@@ -555,94 +1065,491 @@ controlled failure should be stored but should not create a detection.
 Add a permanent authorized lab address:
 
 ```bash
-ssh-guard --config config/local.json allowlist-add 192.168.56.20 --description "Lab administrator workstation" --reason "Trusted management source" --created-by "$USER"
+ssh-security-app --config config/local.json allowlist-add 192.168.56.20 --description "Lab administrator workstation" --reason "Trusted management source" --created-by "$USER"
 ```
 
 Add an entry that expires at a UTC-aware time:
 
 ```bash
-ssh-guard --config config/local.json allowlist-add 192.168.56.21 --description "Temporary lab scanner" --reason "Authorized exercise" --created-by "$USER" --expires-at "2026-07-25T18:00:00+00:00" --notes "Remove after the exercise"
+ssh-security-app --config config/local.json allowlist-add 192.168.56.21 --description "Temporary lab scanner" --reason "Authorized exercise" --created-by "$USER" --expires-at "2026-07-25T18:00:00+00:00" --notes "Remove after the exercise"
 ```
 
 List active entries:
 
 ```bash
-ssh-guard --config config/local.json allowlist-list
+ssh-security-app --config config/local.json allowlist-list
 ```
 
 Copy the returned entry ID and disable it:
 
 ```bash
-SSH_GUARD_ALLOWLIST_ID="paste-entry-id-here"
-ssh-guard --config config/local.json allowlist-disable "$SSH_GUARD_ALLOWLIST_ID"
+SSH_SECURITY_APP_ALLOWLIST_ID="paste-entry-id-here"
+ssh-security-app --config config/local.json allowlist-disable "$SSH_SECURITY_APP_ALLOWLIST_ID"
 ```
 
 Only validated IPv4 addresses are accepted. An allowlisted source is still
 collected and scored; its response decision becomes `SUPPRESS_ALLOWLIST`.
 
+## Manual unblock and recovery
+
+List active blocks and copy the intended block ID and source IP:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT block_id,source_ip,expires_at,status FROM blocks WHERE status='Active' ORDER BY expires_at;"
+```
+
+Queue a request as the normal application user:
+
+```bash
+SSH_SECURITY_APP_BLOCK_ID="paste-block-id-here"
+SSH_SECURITY_APP_SOURCE_IP="192.168.56.40"
+ssh-security-app --config config/local.json manual-unblock-request \
+  "$SSH_SECURITY_APP_BLOCK_ID" \
+  "$SSH_SECURITY_APP_SOURCE_IP" \
+  --reason "Authorized lab test complete"
+```
+
+The command writes SQLite only. The running response worker will validate and
+process it. For a foreground test:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" \
+  --config "$(pwd)/config/local.json" \
+  response-worker
+```
+
+Inspect the request and block results:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT request_id,source_ip,status,result_message FROM action_requests ORDER BY requested_at DESC;"
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT source_ip,status,removed_at,removal_method,error_message FROM blocks ORDER BY blocked_at DESC;"
+```
+
+To remove all recognized SSH Security Application state after a lab exercise:
+
+```bash
+sudo "$(pwd)/.venv/bin/python" scripts/cleanup_firewall.py \
+  --config "$(pwd)/config/local.json" \
+  --confirm-firewall-changes
+```
+
+Cleanup refuses to run if the project chain contains an unknown or duplicate
+rule. See [docs/recovery.md](docs/recovery.md) before resolving any refusal.
+
+## Managed systemd installation
+
+The unit templates use `/opt/ssh-security-application` for code,
+`/etc/ssh-security-app/config.json` for configuration, `/var/lib/ssh-security-app` for
+SQLite, `/var/log/ssh-security-app` for logs, and the unprivileged `sshsecurityapp` account.
+Run these commands from the repository root:
+
+```bash
+sudo apt update
+sudo apt install -y rsync python3 python3-venv python3-pip
+sudo useradd --system --home-dir /var/lib/ssh-security-app --shell /usr/sbin/nologin sshsecurityapp
+sudo usermod -aG systemd-journal sshsecurityapp
+sudo install -d -o root -g root -m 0755 /opt/ssh-security-application
+sudo install -d -o root -g sshsecurityapp -m 0750 /etc/ssh-security-app
+sudo install -d -o sshsecurityapp -g sshsecurityapp -m 0750 /var/lib/ssh-security-app
+sudo install -d -o sshsecurityapp -g sshsecurityapp -m 0750 /var/log/ssh-security-app
+sudo rsync -a --delete \
+  --exclude '.git/' \
+  --exclude '.venv/' \
+  --exclude 'config/local.json' \
+  --exclude 'data/' \
+  --exclude 'logs/' \
+  "$PWD/" /opt/ssh-security-application/
+sudo python3 -m venv /opt/ssh-security-application/.venv
+sudo /opt/ssh-security-application/.venv/bin/python -m pip install --upgrade pip
+sudo /opt/ssh-security-application/.venv/bin/python -m pip install \
+  -e /opt/ssh-security-application
+sudo cp config/local.example.json /etc/ssh-security-app/config.json
+sudo nano /etc/ssh-security-app/config.json
+```
+
+In `/etc/ssh-security-app/config.json`, set the real interface, protected server
+addresses, SSH unit, dashboard address, and tool paths. Also set:
+
+```json
+{
+  "database": {
+    "path": "/var/lib/ssh-security-app/ssh_security_app.db"
+  },
+  "logging": {
+    "path": "/var/log/ssh-security-app/ssh_security_app.log"
+  }
+}
+```
+
+Then validate permissions, configuration, units, and startup:
+
+```bash
+sudo chown root:sshsecurityapp /etc/ssh-security-app/config.json
+sudo chmod 0640 /etc/ssh-security-app/config.json
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json validate-config
+sudo cp systemd/ssh-security-app-firewall.service \
+  /etc/systemd/system/ssh-security-app-firewall.service
+sudo cp systemd/ssh-security-app.service /etc/systemd/system/ssh-security-app.service
+sudo cp systemd/ssh-security-app-dashboard.service \
+  /etc/systemd/system/ssh-security-app-dashboard.service
+sudo cp systemd/ssh-security-app-tmpfiles.conf \
+  /etc/tmpfiles.d/ssh-security-app.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/ssh-security-app.conf
+ls -l /run/xtables.lock
+sudo systemd-analyze verify /etc/systemd/system/ssh-security-app-firewall.service
+sudo systemd-analyze verify /etc/systemd/system/ssh-security-app.service
+sudo systemd-analyze verify /etc/systemd/system/ssh-security-app-dashboard.service
+sudo systemctl daemon-reload
+sudo systemctl enable ssh-security-app.service
+sudo systemctl enable ssh-security-app-dashboard.service
+sudo systemctl start ssh-security-app.service
+sudo systemctl start ssh-security-app-dashboard.service
+systemctl status ssh-security-app.service --no-pager
+systemctl status ssh-security-app-dashboard.service --no-pager
+```
+
+Simulation and Log Only services need no firewall initialization. Before
+starting Automatic Response, enable and start the capability-limited firewall
+initializer before the main service:
+
+```bash
+sudo systemctl stop ssh-security-app.service
+sudo systemctl enable --now ssh-security-app-firewall.service
+sudo systemctl start ssh-security-app.service
+```
+
+Follow logs and stop/disable the services:
+
+```bash
+journalctl -u ssh-security-app-firewall.service -f
+journalctl -u ssh-security-app.service -f
+journalctl -u ssh-security-app-dashboard.service -f
+sudo systemctl stop ssh-security-app-dashboard.service
+sudo systemctl stop ssh-security-app.service
+sudo systemctl stop ssh-security-app-firewall.service
+sudo systemctl disable ssh-security-app-dashboard.service
+sudo systemctl disable ssh-security-app.service
+sudo systemctl disable ssh-security-app-firewall.service
+```
+
+## Full authorized-lab test
+
+Use one server VM, one disposable client VM, and—if you administer the server
+over SSH—a different trusted management client. Complete the managed systemd
+installation above first.
+
+### 1. Record addresses and protect management access
+
+On the server:
+
+```bash
+ip -4 -br address
+who -u
+printf '%s\n' "$SSH_CONNECTION"
+sudo ss -tnp | grep ':22'
+```
+
+On the disposable client:
+
+```bash
+ip -4 -br address
+```
+
+Set the addresses on the server:
+
+```bash
+SSH_SECURITY_APP_SERVER_IP="192.168.56.10"
+SSH_SECURITY_APP_TEST_IP="192.168.56.40"
+SSH_SECURITY_APP_ADMIN_IP="192.168.56.20"
+printf 'server=%s test=%s admin=%s\n' \
+  "$SSH_SECURITY_APP_SERVER_IP" "$SSH_SECURITY_APP_TEST_IP" "$SSH_SECURITY_APP_ADMIN_IP"
+```
+
+The test IP must not match the client address shown in `SSH_CONNECTION` or any
+active management connection. Add the management client to the allowlist:
+
+```bash
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  allowlist-add "$SSH_SECURITY_APP_ADMIN_IP" \
+  --description "Lab management workstation" \
+  --reason "Prevent management lockout during controlled test" \
+  --created-by "$USER"
+```
+
+Edit and validate the local configuration:
+
+```bash
+sudo nano /etc/ssh-security-app/config.json
+sudo python3 -m json.tool /etc/ssh-security-app/config.json
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  validate-config
+```
+
+Set `response.mode` to `automatic_response`,
+`response.block_duration_seconds` to `120`,
+`response.expiration_check_seconds` to `10`, and include the server's own
+addresses in `network_sensor.protected_ipv4_addresses`.
+
+### 2. Back up and initialize only the project chain
+
+```bash
+mkdir -p backups
+sudo iptables-save > backups/iptables.before-full-test.rules
+sudo /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  firewall-init \
+  --confirm-firewall-changes
+sudo /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  firewall-status
+```
+
+### 3. Start the complete application
+
+Use the installed capability-limited service so collectors do not run as root:
+
+```bash
+sudo systemctl restart ssh-security-app.service
+systemctl status ssh-security-app.service --no-pager
+journalctl -u ssh-security-app.service -f
+```
+
+Start the separate unprivileged dashboard service:
+
+```bash
+sudo systemctl restart ssh-security-app-dashboard.service
+systemctl status ssh-security-app-dashboard.service --no-pager
+```
+
+### 4. Generate controlled failures from the disposable client
+
+On the disposable client only:
+
+```bash
+SSH_SECURITY_APP_SERVER_IP="192.168.56.10"
+ssh -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  ssh_security_app_nonexistent@"$SSH_SECURITY_APP_SERVER_IP"
+```
+
+Enter a deliberately incorrect lab-only password at each prompt. Repeat the
+command until the server records at least ten failures. Do not use a real
+password or test from the management client.
+
+### 5. Confirm collection, detection, and the exact block
+
+On the server:
+
+```bash
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect detections \
+  --limit 5
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect active-blocks
+sudo -u sshsecurityapp sqlite3 /var/lib/ssh-security-app/ssh_security_app.db \
+  "SELECT COUNT(*) FROM auth_events WHERE source_ip='$SSH_SECURITY_APP_TEST_IP' AND success=0;"
+sudo -u sshsecurityapp sqlite3 /var/lib/ssh-security-app/ssh_security_app.db \
+  "SELECT COUNT(*) FROM network_events WHERE source_ip='$SSH_SECURITY_APP_TEST_IP' AND destination_port=22;"
+sudo -u sshsecurityapp sqlite3 -header -column /var/lib/ssh-security-app/ssh_security_app.db \
+  "SELECT source_ip,risk_score,classification,decision FROM detections WHERE source_ip='$SSH_SECURITY_APP_TEST_IP' ORDER BY created_at DESC LIMIT 1;"
+sudo -u sshsecurityapp sqlite3 -header -column /var/lib/ssh-security-app/ssh_security_app.db \
+  "SELECT block_id,source_ip,status,expires_at FROM blocks WHERE source_ip='$SSH_SECURITY_APP_TEST_IP' ORDER BY blocked_at DESC LIMIT 1;"
+sudo iptables -C SSH_SECURITY_APP \
+  -s "$SSH_SECURITY_APP_TEST_IP" \
+  -p tcp \
+  --dport 22 \
+  -j DROP
+sudo iptables -S SSH_SECURITY_APP
+```
+
+The detection should be `High Risk`/`BLOCK`, the database block should be
+`Active`, and the exact check should return status 0.
+
+### 6. Test manual removal or automatic expiration
+
+While the block is active, retry once from the disposable client:
+
+```bash
+time ssh -o ConnectTimeout=5 \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  ssh_security_app_nonexistent@"$SSH_SECURITY_APP_SERVER_IP"
+```
+
+The connection should time out before an SSH password prompt. This confirms
+that the exact temporary iptables rule is affecting only the disposable
+source.
+
+For manual removal, copy the active block ID, queue the request as the normal
+user, and let the running response worker process it:
+
+```bash
+SSH_SECURITY_APP_BLOCK_ID="$(
+  sudo -u sshsecurityapp sqlite3 /var/lib/ssh-security-app/ssh_security_app.db \
+    "SELECT block_id FROM blocks WHERE source_ip='$SSH_SECURITY_APP_TEST_IP' AND status='Active' ORDER BY blocked_at DESC LIMIT 1;"
+)"
+sudo -u sshsecurityapp /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  manual-unblock-request \
+  "$SSH_SECURITY_APP_BLOCK_ID" \
+  "$SSH_SECURITY_APP_TEST_IP" \
+  --reason "Controlled Stage 8 manual-unblock test"
+```
+
+Confirm the result:
+
+```bash
+sudo -u sshsecurityapp sqlite3 -header -column /var/lib/ssh-security-app/ssh_security_app.db \
+  "SELECT source_ip,status,removed_at,removal_method FROM blocks WHERE block_id='$SSH_SECURITY_APP_BLOCK_ID';"
+sudo iptables -C SSH_SECURITY_APP \
+  -s "$SSH_SECURITY_APP_TEST_IP" \
+  -p tcp \
+  --dport 22 \
+  -j DROP
+```
+
+For automatic expiration instead, do not queue the request. Wait longer than
+the configured 120-second duration and run the same two checks. The block
+should be `Expired` with removal method `Automatic`; the iptables check should
+return status 1 because the exact rule is absent. You can watch the countdown
+without writing SQL:
+
+```bash
+watch -n 5 'sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json inspect active-blocks'
+```
+
+Stop `watch` with `Ctrl+C`. After roughly two minutes, retry the client SSH
+command. It should reach the password prompt again, confirming automatic
+expiration and rule removal.
+
+### 7. Test restart reconciliation and cleanup
+
+```bash
+sudo /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  response-reconcile
+sudo /opt/ssh-security-application/.venv/bin/python \
+  /opt/ssh-security-application/scripts/cleanup_firewall.py \
+  --config /etc/ssh-security-app/config.json \
+  --confirm-firewall-changes
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -C INPUT \
+  -p tcp \
+  --dport 22 \
+  -j SSH_SECURITY_APP
+```
+
+After cleanup, both inspection commands should return status 1 because the
+project chain and its exact jump are absent. The backup remains available for
+comparison; do not restore it wholesale over unrelated firewall changes.
+
 ## Inspect SQLite evidence and decisions
+
+Prefer the application's schema-aware inspection command. It returns JSON and
+does not require remembering physical SQLite column names:
+
+```bash
+ssh-security-app --config config/local.json inspect overview
+ssh-security-app --config config/local.json inspect detections --limit 20
+ssh-security-app --config config/local.json inspect active-blocks
+ssh-security-app --config config/local.json inspect allowlist
+ssh-security-app --config config/local.json inspect actions
+ssh-security-app --config config/local.json inspect audit --limit 20
+ssh-security-app --config config/local.json inspect health
+```
+
+The earlier `no such column: network_connection_count` error was caused by a
+documentation query using the domain-model name. The physical column in
+`detections` is `network_event_count`. The application inspection command maps
+that value to the clearer JSON field `network_connections`.
+
+Direct SQLite queries remain useful for detailed investigation:
 
 Authentication events:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, source_ip, username, event_type, success FROM auth_events ORDER BY event_time DESC LIMIT 20;"
 ```
 
 Network metadata:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, source_ip, destination_ip, destination_port, tcp_flags, interface_name FROM network_events ORDER BY event_time DESC LIMIT 20;"
 ```
 
 Risk detections and decisions:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
-  "SELECT window_end, source_ip, failed_count, network_connection_count, risk_score, classification, decision FROM detections ORDER BY created_at DESC LIMIT 20;"
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT window_end, source_ip, failed_count, network_event_count, risk_score, classification, decision FROM detections ORDER BY created_at DESC LIMIT 20;"
 ```
 
 Linked evidence counts:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
-  "SELECT detection_id, evidence_type, COUNT(*) AS evidence_count FROM detection_evidence GROUP BY detection_id, evidence_type ORDER BY detection_id, evidence_type;"
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT detection_id, 'authentication' AS evidence_type, COUNT(*) AS evidence_count FROM detection_auth_events GROUP BY detection_id UNION ALL SELECT detection_id, 'network', COUNT(*) FROM detection_network_events GROUP BY detection_id ORDER BY detection_id, evidence_type;"
 ```
 
 IP profiles:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT source_ip, ip_category, failed_count_total, successful_count_total, detection_count, last_seen FROM ip_profiles ORDER BY last_seen DESC;"
+```
+
+Blocks:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT block_id, source_ip, detection_id, blocked_at, expires_at, status, firewall_result FROM blocks ORDER BY blocked_at DESC;"
+```
+
+Persisted operating mode:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT state_key, state_value, updated_at FROM application_state ORDER BY state_key;"
 ```
 
 Parser failures:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, sensor, error_message, raw_message FROM parser_errors ORDER BY event_time DESC LIMIT 20;"
 ```
 
 Audit records:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, component, action, result, target FROM audit_log ORDER BY event_time DESC LIMIT 20;"
 ```
 
 Component health:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT component, status, last_success, last_error, details FROM component_health ORDER BY component;"
 ```
 
 Database health:
 
 ```bash
-sqlite3 data/ssh_guard.db "PRAGMA quick_check;"
-sqlite3 data/ssh_guard.db "PRAGMA journal_mode;"
+sqlite3 data/ssh_security_app.db "PRAGMA quick_check;"
+sqlite3 data/ssh_security_app.db "PRAGMA journal_mode;"
 ```
 
 ## Configuration reference
@@ -654,11 +1561,11 @@ sqlite3 data/ssh_guard.db "PRAGMA journal_mode;"
 |---|---|
 | `application` | Display name and environment |
 | `detection` | Five-minute window, detection/blocking failure thresholds, high-risk score, and recent-success period |
-| `response` | Safe mode, future block duration, expiration interval, backend, and dedicated chain |
+| `response` | Mode, block duration, expiration interval, backend, dedicated chain, absolute iptables path, and command timeout |
 | `authentication_sensor` | Enable flag, SSH unit, `journalctl` path, and lookback |
 | `network_sensor` | Enable flag, interface, SSH port, `tcpdump` path, snapshot length, restart policy, and protected server IPv4 addresses |
 | `database` | SQLite path, busy timeout, and WAL |
-| `dashboard` | Reserved dashboard bind address and port |
+| `dashboard` | Lab-only first-party dashboard bind address and port |
 | `logging` | Level, rotating JSON log path, size, and backups |
 
 Valid response modes:
@@ -666,8 +1573,10 @@ Valid response modes:
 - `simulation`: creates and audits decisions such as `WOULD_BLOCK`; never
   changes the firewall.
 - `log_only`: stores and logs detections; never changes the firewall.
-- `automatic_response`: reserved for the guarded firewall manager in Stage 6.
-  Current Stages 1–4 still do not execute firewall commands.
+- `automatic_response`: permits guarded response only after every safety gate
+  and firewall readiness check passes. One-shot detection also requires
+  `--apply-response`; the managed service is the explicit continuous response
+  path.
 
 ## Risk-score breakdown
 
@@ -694,21 +1603,24 @@ source .venv/bin/activate
 ```
 
 ```bash
-python -m pytest --cov=ssh_guard --cov-report=term-missing
+python -m pytest --cov=ssh_security_app --cov-report=term-missing
 ruff check .
 ruff format --check .
 python -m compileall -q src scripts
 ```
 
-At completion of Stages 1–4, the suite contains 108 passing unit and integration
-tests and reports 79% overall statement/branch coverage on Python 3.8.
+At completion of Stages 1–8, the suite contains 158 passing unit and integration
+tests with 81% overall statement/branch coverage on Python 3.8. It covers safe
+modes, all dashboard pages, exact firewall commands, idempotent chain/rule
+handling, failure rollback, Automatic Response, expiration retry, manual
+unblocking, reconciliation, safe cleanup, and managed shutdown.
 
 ## Logging
 
-The default rotating JSON log is `logs/ssh_guard.log`.
+The default rotating JSON log is `logs/ssh_security_app.log`.
 
 ```bash
-tail -f logs/ssh_guard.log
+tail -f logs/ssh_security_app.log
 ```
 
 ## Troubleshooting
@@ -728,19 +1640,19 @@ python -m pip install -e '.[dev]'
 The previous incomplete directory remains at `.venv.incomplete` until you
 inspect and remove it.
 
-### `ssh-guard: command not found`
+### `ssh-security-app: command not found`
 
 ```bash
 cd "$HOME/SSH-Security-Application"
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-which ssh-guard
+which ssh-security-app
 ```
 
 Fallback invocation:
 
 ```bash
-python -m ssh_guard.main validate-config
+python -m ssh_security_app.main validate-config
 ```
 
 ### Configuration error or invalid JSON
@@ -748,7 +1660,7 @@ python -m ssh_guard.main validate-config
 ```bash
 python -m json.tool config/local.json
 diff -u config/local.example.json config/local.json
-ssh-guard --config config/local.json validate-config
+ssh-security-app --config config/local.json validate-config
 ```
 
 ### `Unit ssh.service could not be found`
@@ -783,7 +1695,7 @@ journalctl -u ssh.service -n 10 -o short-iso --no-pager
 systemctl is-active ssh.service
 journalctl -u ssh.service -n 50 -o short-iso --no-pager
 ss -lnt
-ssh-guard --config config/local.json collect-auth --once --since "yesterday"
+ssh-security-app --config config/local.json collect-auth --once --since "yesterday"
 ```
 
 ### `tcpdump` is missing
@@ -805,8 +1717,7 @@ sudo setcap cap_net_raw,cap_net_admin=eip "$(command -v tcpdump)"
 getcap "$(command -v tcpdump)"
 ```
 
-Do not solve this by running the whole application or a future dashboard as
-root.
+Do not solve this by running the whole application or dashboard as root.
 
 ### `tcpdump` reports that the interface does not exist
 
@@ -818,8 +1729,8 @@ ip -br address
 Copy the correct interface name into `network_sensor.interface`, then:
 
 ```bash
-ssh-guard --config config/local.json validate-config
-ssh-guard --config config/local.json collect-network --follow
+ssh-security-app --config config/local.json validate-config
+ssh-security-app --config config/local.json collect-network --follow
 ```
 
 ### The network collector repeatedly restarts
@@ -827,9 +1738,9 @@ ssh-guard --config config/local.json collect-network --follow
 Inspect sensor health and the application log:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT component, status, last_error, details FROM component_health WHERE component = 'network_sensor';"
-tail -n 100 logs/ssh_guard.log
+tail -n 100 logs/ssh_security_app.log
 ```
 
 Confirm the executable, capability, interface, and SSH port:
@@ -841,10 +1752,135 @@ ip -br address
 python -m json.tool config/local.json
 ```
 
+### The dashboard module or assets are missing
+
+```bash
+cd "$HOME/SSH-Security-Application"
+source .venv/bin/activate
+python -m pip install -e .
+python -c "from ssh_security_app.ui.dashboard import STATIC_DIRECTORY; print(STATIC_DIRECTORY)"
+test -f src/ssh_security_app/ui/static/index.html
+python scripts/run_dashboard.py --config config/local.json
+```
+
+### The dashboard is not reachable
+
+Confirm the configured lab address exists on the server:
+
+```bash
+ip -br address
+python -m json.tool config/local.json
+ss -lnt | sed -n '/:8501/p'
+```
+
+Set `dashboard.host` to an address assigned to the lab VM, restart the
+dashboard, and connect only from the authorized lab network. If
+`dashboard.host` is `127.0.0.1`, it is intentionally reachable only from the
+server itself. To reach it from the disposable lab client, use the server's
+private lab-interface address and confirm the port is listening:
+
+```bash
+python scripts/run_dashboard.py --config config/local.json
+curl -I "http://127.0.0.1:8501/"
+```
+
+### Dashboard startup reports `Address already in use`
+
+Identify what owns the configured port:
+
+```bash
+ss -lntp '( sport = :8501 )'
+ps -fp PASTE_PID_HERE
+```
+
+If it is an earlier project dashboard, stop it with `Ctrl+C` in the terminal
+that launched it. Do not kill an unidentified process. Then run:
+
+```bash
+python scripts/run_dashboard.py --config config/local.json
+```
+
+### SQLite reports `no such column: network_connection_count`
+
+Use the schema-aware command:
+
+```bash
+ssh-security-app --config config/local.json inspect detections --limit 20
+```
+
+If a raw SQL query is required, use the physical column
+`network_event_count`; `network_connection_count` is the Python domain-model
+attribute, not a SQLite column.
+
+### `iptables` is missing or the configured path is wrong
+
+```bash
+sudo apt update
+sudo apt install -y iptables
+command -v iptables
+```
+
+Update `response.iptables_path` to the absolute result and validate:
+
+```bash
+ssh-security-app --config config/local.json validate-config
+```
+
+### Firewall status reports that the project chain or jump is missing
+
+First confirm the current mode and inspect the host state:
+
+```bash
+ssh-security-app --config config/local.json mode-status
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -C INPUT -p tcp --dport 22 -j SSH_SECURITY_APP
+```
+
+If this is a deliberate authorized lab validation, follow the dedicated
+chain initialization procedure above. Do not create a similarly named chain by
+hand and do not flush `INPUT`.
+
+### Firewall initialization reports permission denied
+
+The dashboard and collectors must remain unprivileged. For this narrow
+initialization command only:
+
+```bash
+sudo "$(pwd)/.venv/bin/ssh-security-app" --config "$(pwd)/config/local.json" firewall-init --confirm-firewall-changes
+```
+
+If it still fails, inspect the stored health and audit reason:
+
+```bash
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT component, status, last_error, details FROM component_health WHERE component = 'firewall_manager';"
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT event_time, action, result, details FROM audit_log WHERE component = 'firewall_manager' ORDER BY event_time DESC LIMIT 10;"
+```
+
+### A block reached its database expiration time but the rule remains
+
+The expiration worker leaves a block Active after a deletion failure so it can
+retry safely. Inspect worker health, the stored error, and exact project state:
+
+```bash
+systemctl status ssh-security-app.service --no-pager
+journalctl -u ssh-security-app.service -n 100 --no-pager
+sqlite3 -header -column data/ssh_security_app.db \
+  "SELECT source_ip,status,expires_at,error_message FROM blocks WHERE status='Active' ORDER BY expires_at;"
+sudo iptables -S SSH_SECURITY_APP
+sudo "$(pwd)/.venv/bin/ssh-security-app" \
+  --config "$(pwd)/config/local.json" \
+  response-reconcile
+```
+
+Fix the reported permission/path/state problem and leave the worker running for
+its next retry. Do not flush the chain or change a default policy.
+
 ### Evidence appears in `parser_errors`
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, sensor, error_message, raw_message FROM parser_errors ORDER BY event_time DESC LIMIT 20;"
 ```
 
@@ -857,14 +1893,14 @@ keys, or unauthorized public addresses.
 Check whether the threshold was met:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT source_ip, COUNT(*) AS failures FROM auth_events WHERE success = 0 GROUP BY source_ip;"
 ```
 
 Check the evidence timestamps:
 
 ```bash
-sqlite3 -header -column data/ssh_guard.db \
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT event_time, source_ip, event_type FROM auth_events ORDER BY event_time DESC LIMIT 20;"
 ```
 
@@ -876,8 +1912,8 @@ window or when the identical evidence set was already analyzed.
 Inspect the printed reason, health, and allowlist:
 
 ```bash
-ssh-guard --config config/local.json allowlist-list
-sqlite3 -header -column data/ssh_guard.db \
+ssh-security-app --config config/local.json allowlist-list
+sqlite3 -header -column data/ssh_security_app.db \
   "SELECT component, status, last_error FROM component_health ORDER BY component;"
 ```
 
@@ -892,7 +1928,7 @@ processes and database health:
 
 ```bash
 ps -ef | sed -n '/[s]sh-guard/p'
-sqlite3 data/ssh_guard.db "PRAGMA quick_check;"
+sqlite3 data/ssh_security_app.db "PRAGMA quick_check;"
 ```
 
 Increase `database.busy_timeout_seconds` if a slow lab disk needs more time.
@@ -901,7 +1937,7 @@ Increase `database.busy_timeout_seconds` if a slow lab disk needs more time.
 
 ```bash
 ls -ld data
-ls -l data/ssh_guard.db
+ls -l data/ssh_security_app.db
 ```
 
 The database and parent directory must be writable by the normal application
@@ -913,14 +1949,14 @@ Stop collectors, then:
 
 ```bash
 mkdir -p backups
-cp -a data/ssh_guard.db backups/ssh_guard.db.backup
-mv data/ssh_guard.db data/ssh_guard.db.previous
-ssh-guard --config config/local.json init-db
+cp -a data/ssh_security_app.db backups/ssh_security_app.db.backup
+mv data/ssh_security_app.db data/ssh_security_app.db.previous
+ssh-security-app --config config/local.json init-db
 ```
 
 The previous evidence remains recoverable in both paths.
 
-### Tests cannot import `ssh_guard`
+### Tests cannot import `ssh_security_app`
 
 ```bash
 source .venv/bin/activate
@@ -931,7 +1967,9 @@ python -m pytest
 ## Security decisions currently enforced
 
 - Simulation Mode is the default.
-- Stages 1–4 contain no firewall execution.
+- Simulation and Log Only modes contain no firewall execution.
+- Firewall mutation requires Automatic Response Mode and an explicit
+  confirmation or response flag.
 - External processes use argument arrays and `shell=False`.
 - Live network capture is filtered to the configured TCP destination port.
 - Snapshot length defaults to 96 bytes and only parsed metadata is stored.
@@ -941,8 +1979,13 @@ python -m pytest
 - Private IPv4 is eligible only because the intended environment is a
   controlled lab.
 - Protected, allowlisted, special-purpose, or unhealthy cases fail safely.
-- The future dashboard will be unprivileged and use SQLite action requests
-  instead of executing firewall commands.
+- Firewall commands are limited to the dedicated project chain and its TCP/22
+  jump. There is no flush or policy-changing command.
+- The Stage 8 dashboard is unprivileged and has no firewall execution path; its
+  manual-unblock action writes a validated SQLite request.
+- Expiration and manual-unblock failures are recorded for review and never
+  trigger broad firewall cleanup.
+- Reconciliation never automatically deletes an unknown project-chain rule.
 
 ## Final target workflow
 
@@ -958,19 +2001,22 @@ Evidence correlated and risk scored
         v
 Safety gates and operating mode evaluated
         |
-        +---------------- current Stages 1–4 ----------------+
+        +-------------------------------------------------------+
+        |                         |                             |
+        v                         v                             v
+Simulation: WOULD_BLOCK    Log Only: store/log       Automatic Response gates
+        |                         |                             |
+        +-------------------------+                             v
+        |                                  Dedicated SSH_SECURITY_APP rule added
+        v                                                    |
+Detection stored, audited, and shown in dashboard            v
+        |                                      Confirmed block stored in SQLite
         |                                                    |
-        v                                                    v
-Detection stored and audited                 Simulation reports WOULD_BLOCK
-        |
-        +---------------- future Stages 5–8 -----------------+
-        |
-        v
-Dedicated SSH_BRUTE_GUARD rule added
-        |
-        v
-Dashboard shows block, evidence, audit, and health
-        |
-        v
-Expiration or approved manual request removes project rule
+        +------------------------+---------------------------+
+                                 |
+                                 v
+             Expiration or approved manual request
+                                 |
+                                 v
+                   Exact project rule removed
 ```

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SSH Security Application</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <div>
+          <strong>SSH Security</strong>
+          <small>Application Console</small>
+        </div>
+      </div>
+      <nav aria-label="Dashboard sections">
+        <button class="nav-item active" data-view="overview"><span>01</span>Overview</button>
+        <button class="nav-item" data-view="detections"><span>02</span>Detections</button>
+        <button class="nav-item" data-view="blocks"><span>03</span>Active blocks</button>
+        <button class="nav-item" data-view="allowlist"><span>04</span>Allowlist</button>
+        <button class="nav-item" data-view="audit"><span>05</span>Audit trail</button>
+        <button class="nav-item" data-view="health"><span>06</span>System health</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="status-dot"></span>
+        <div><strong>Local console</strong><small>No third-party dashboard</small></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">DEFENSIVE OPERATIONS / LAB</p>
+          <h1 id="page-title">Security overview</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="updated">Updated <time id="updated-at">—</time></div>
+          <button id="refresh-button" class="button secondary">Refresh data</button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+
+      <section id="view-overview" class="view active">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">CURRENT OPERATING MODE</p>
+            <h2 id="operating-mode">—</h2>
+            <p>Multi-source SSH evidence correlation with explainable scoring and temporary response.</p>
+          </div>
+          <div class="hero-ring"><span id="hero-risk-count">0</span><small>high risk</small></div>
+        </div>
+        <div id="metric-grid" class="metric-grid"></div>
+        <div class="split-grid">
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">LATEST SIGNALS</p><h3>Recent detections</h3></div></div>
+            <div id="overview-detections" class="signal-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">SERVICE STATUS</p><h3>Core components</h3></div></div>
+            <div id="overview-health" class="health-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-detections" class="view">
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">CORRELATED EVIDENCE</p><h3>Detection history</h3></div></div>
+          <div class="table-wrap"><table id="detections-table"></table></div>
+        </article>
+      </section>
+
+      <section id="view-blocks" class="view">
+        <div class="section-intro">
+          <div><p class="eyebrow">TEMPORARY RESPONSE</p><h2>Active firewall blocks</h2></div>
+          <p>Unblock requests are written to SQLite and validated by the privileged response worker.</p>
+        </div>
+        <div id="blocks-grid" class="cards-grid"></div>
+      </section>
+
+      <section id="view-allowlist" class="view">
+        <div class="split-grid form-layout">
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">TRUSTED SOURCE</p><h3>Add allowlist entry</h3></div></div>
+            <form id="allowlist-form">
+              <label>IPv4 address<input name="ip_address" required placeholder="192.168.56.20"></label>
+              <label>Description<input name="description" required placeholder="Lab administrator workstation"></label>
+              <label>Reason<input name="reason" required placeholder="Authorized management source"></label>
+              <label>Created by<input name="created_by" required placeholder="Your name"></label>
+              <label>Expires at (optional)<input name="expires_at" placeholder="2026-07-27T18:00:00+00:00"></label>
+              <label>Notes (optional)<textarea name="notes" rows="3"></textarea></label>
+              <button class="button primary" type="submit">Add trusted source</button>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">CURRENT ENTRIES</p><h3>Allowlist</h3></div></div>
+            <div id="allowlist-list" class="entry-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-audit" class="view">
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">ACCOUNTABILITY</p><h3>Security audit trail</h3></div></div>
+          <div class="table-wrap"><table id="audit-table"></table></div>
+        </article>
+        <article class="panel spaced">
+          <div class="panel-heading"><div><p class="eyebrow">QUEUED OPERATIONS</p><h3>Action requests</h3></div></div>
+          <div class="table-wrap"><table id="actions-table"></table></div>
+        </article>
+      </section>
+
+      <section id="view-health" class="view">
+        <div id="health-grid" class="cards-grid"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

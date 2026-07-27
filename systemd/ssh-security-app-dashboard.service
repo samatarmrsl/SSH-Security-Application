@@ -1,0 +1,24 @@
+[Unit]
+Description=SSH Security Application first-party dashboard
+Documentation=file:/opt/ssh-security-application/README.md
+After=ssh-security-app.service
+Wants=ssh-security-app.service
+
+[Service]
+Type=simple
+User=sshsecurityapp
+Group=sshsecurityapp
+WorkingDirectory=/opt/ssh-security-application
+ExecStart=/opt/ssh-security-application/.venv/bin/python scripts/run_dashboard.py --config /etc/ssh-security-app/config.json
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ssh-security-app /var/log/ssh-security-app
+RestrictAddressFamilies=AF_UNIX AF_INET
+
+[Install]
+WantedBy=multi-user.target

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ssh_guard.audit import AuditService
-from ssh_guard.collectors.auth_ingestor import AuthenticationIngestor
-from ssh_guard.collectors.auth_journal import AuthenticationJournalCollector
-from ssh_guard.config import AuthenticationSensorConfig
-from ssh_guard.db.database import Database
-from ssh_guard.db.repositories import RepositorySet
-from ssh_guard.health import HealthMonitor
+from ssh_security_app.audit import AuditService
+from ssh_security_app.collectors.auth_ingestor import AuthenticationIngestor
+from ssh_security_app.collectors.auth_journal import AuthenticationJournalCollector
+from ssh_security_app.config import AuthenticationSensorConfig
+from ssh_security_app.db.database import Database
+from ssh_security_app.db.repositories import RepositorySet
+from ssh_security_app.health import HealthMonitor
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 

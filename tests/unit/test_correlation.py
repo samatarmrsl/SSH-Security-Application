@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from ssh_guard.constants import (
+from ssh_security_app.constants import (
     AuthenticationEventType,
     AuthenticationResult,
     ParseStatus,
 )
-from ssh_guard.core.correlation import correlate_events
-from ssh_guard.models import AuthenticationEvent, NetworkEvent
+from ssh_security_app.core.correlation import correlate_events
+from ssh_security_app.models import AuthenticationEvent, NetworkEvent
 
 
 def auth_event(

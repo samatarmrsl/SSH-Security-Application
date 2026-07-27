@@ -4,21 +4,21 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ssh_guard.audit import AuditService
-from ssh_guard.collectors.auth_ingestor import AuthenticationIngestor
-from ssh_guard.collectors.auth_journal import AuthenticationJournalCollector
-from ssh_guard.collectors.network_ingestor import NetworkIngestor
-from ssh_guard.collectors.network_tcpdump import NetworkTcpdumpCollector
-from ssh_guard.config import (
+from ssh_security_app.audit import AuditService
+from ssh_security_app.collectors.auth_ingestor import AuthenticationIngestor
+from ssh_security_app.collectors.auth_journal import AuthenticationJournalCollector
+from ssh_security_app.collectors.network_ingestor import NetworkIngestor
+from ssh_security_app.collectors.network_tcpdump import NetworkTcpdumpCollector
+from ssh_security_app.config import (
     AuthenticationSensorConfig,
     NetworkSensorConfig,
     load_config,
 )
-from ssh_guard.constants import Decision, DetectionClassification
-from ssh_guard.core.correlation import DetectionEngine
-from ssh_guard.db.database import Database
-from ssh_guard.db.repositories import RepositorySet
-from ssh_guard.health import HealthMonitor
+from ssh_security_app.constants import Decision, DetectionClassification
+from ssh_security_app.core.correlation import DetectionEngine
+from ssh_security_app.db.database import Database
+from ssh_security_app.db.repositories import RepositorySet
+from ssh_security_app.health import HealthMonitor
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 

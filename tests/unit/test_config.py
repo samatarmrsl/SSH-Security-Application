@@ -1,17 +1,34 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from ssh_guard.config import ConfigurationError, load_config
-from ssh_guard.constants import OperatingMode
+from ssh_security_app.config import ConfigurationError, load_config
+from ssh_security_app.constants import OperatingMode
+
+
+def test_packaged_defaults_match_committed_defaults() -> None:
+    repository_root = Path(__file__).parents[2]
+    committed = json.loads(
+        (repository_root / "config" / "default.json").read_text(encoding="utf-8")
+    )
+    packaged = json.loads(
+        (repository_root / "src" / "ssh_security_app" / "default_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert packaged == committed
 
 
 def test_default_configuration_is_safe() -> None:
     settings = load_config()
 
     assert settings.response.mode is OperatingMode.SIMULATION
+    assert settings.response.iptables_path == "/usr/sbin/iptables"
+    assert settings.response.command_timeout_seconds == 10
     assert settings.detection.window_seconds == 300
     assert settings.detection.suspicious_failure_threshold == 5
     assert settings.detection.blocking_failure_threshold == 10
@@ -20,6 +37,7 @@ def test_default_configuration_is_safe() -> None:
     assert settings.network_sensor.snapshot_length_bytes == 96
     assert settings.network_sensor.max_restart_attempts == 3
     assert settings.database.wal_mode is True
+    assert settings.dashboard.host == "127.0.0.1"
 
 
 def test_local_file_is_merged_over_defaults(tmp_path) -> None:
@@ -37,7 +55,7 @@ def test_local_file_is_merged_over_defaults(tmp_path) -> None:
 
     settings = load_config(override)
 
-    assert settings.application.name == "SSH Brute Guard"
+    assert settings.application.name == "SSH Security Application"
     assert settings.application.environment == "test"
     assert settings.response.mode is OperatingMode.LOG_ONLY
     assert settings.response.block_duration_seconds == 1800
@@ -63,6 +81,9 @@ def test_local_file_is_merged_over_defaults(tmp_path) -> None:
         ),
         ({"network_sensor": {"ssh_port": 70000}}, "network_sensor.ssh_port"),
         ({"response": {"iptables_chain": "bad-chain"}}, "response.iptables_chain"),
+        ({"response": {"iptables_path": "iptables"}}, "response.iptables_path"),
+        ({"dashboard": {"host": "0.0.0.0"}}, "dashboard.host"),
+        ({"dashboard": {"host": "8.8.8.8"}}, "dashboard.host"),
         ({"database": {"wal_mode": "yes"}}, "database.wal_mode"),
         (
             {"network_sensor": {"protected_ipv4_addresses": ["not-an-ip"]}},

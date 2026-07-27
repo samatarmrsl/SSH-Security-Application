@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssh_guard.collectors.network_parser import parse_network_line
-from ssh_guard.constants import ParseStatus
+from ssh_security_app.collectors.network_parser import parse_network_line
+from ssh_security_app.constants import ParseStatus
 
 
 def test_parse_ipv4_tcpdump_metadata() -> None:

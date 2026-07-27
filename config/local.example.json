@@ -5,6 +5,10 @@
   "authentication_sensor": {
     "systemd_unit": "ssh.service"
   },
+  "response": {
+    "mode": "simulation",
+    "iptables_path": "/usr/sbin/iptables"
+  },
   "network_sensor": {
     "interface": "enp0s8",
     "tcpdump_path": "/usr/bin/tcpdump",
@@ -13,7 +17,7 @@
     ]
   },
   "database": {
-    "path": "data/ssh_guard.db"
+    "path": "data/ssh_security_app.db"
   },
   "dashboard": {
     "host": "192.168.56.10"

@@ -3,16 +3,16 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 
-from ssh_guard.constants import (
+from ssh_security_app.constants import (
     AuthenticationEventType,
     AuthenticationResult,
     HealthState,
     IPAddressCategory,
     ParseStatus,
 )
-from ssh_guard.db.database import Database
-from ssh_guard.db.repositories import RepositorySet
-from ssh_guard.models import AuthenticationEvent, HealthStatus
+from ssh_security_app.db.database import Database
+from ssh_security_app.db.repositories import RepositorySet
+from ssh_security_app.models import AuthenticationEvent, HealthStatus
 
 REQUIRED_TABLES = {
     "auth_events",
@@ -27,11 +27,12 @@ REQUIRED_TABLES = {
     "audit_log",
     "parser_errors",
     "component_health",
+    "application_state",
 }
 
 
 def build_database(tmp_path) -> Database:
-    database = Database(tmp_path / "ssh_guard.db")
+    database = Database(tmp_path / "ssh_security_app.db")
     database.initialize()
     return database
 

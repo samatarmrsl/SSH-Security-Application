@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from ssh_guard.collectors.auth_journal import CollectorError
-from ssh_guard.collectors.network_tcpdump import NetworkTcpdumpCollector
-from ssh_guard.config import NetworkSensorConfig
-from ssh_guard.constants import HealthState
+from ssh_security_app.collectors.auth_journal import CollectorError
+from ssh_security_app.collectors.network_tcpdump import NetworkTcpdumpCollector
+from ssh_security_app.config import NetworkSensorConfig
+from ssh_security_app.constants import HealthState
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 

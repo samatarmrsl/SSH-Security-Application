@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ssh-brute-guard"
+name = "ssh-security-application"
 version = "0.1.0"
 description = "Multi-source SSH brute-force detection and temporary blocking for an authorized Ubuntu lab"
 readme = "README.md"
@@ -13,10 +13,6 @@ authors = [{ name = "SSH Security Application contributors" }]
 dependencies = []
 
 [project.optional-dependencies]
-dashboard = [
-  "pandas>=2.0",
-  "streamlit>=1.32",
-]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
@@ -24,10 +20,19 @@ dev = [
 ]
 
 [project.scripts]
-ssh-guard = "ssh_guard.main:main"
+ssh-security-app = "ssh_security_app.main:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+ssh_security_app = [
+  "default_config.json",
+  "db/*.sql",
+  "ui/static/*.html",
+  "ui/static/*.css",
+  "ui/static/*.js",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -38,7 +43,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["ssh_guard"]
+source = ["ssh_security_app"]
 
 [tool.coverage.report]
 show_missing = true

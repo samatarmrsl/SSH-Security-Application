@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssh_guard.audit import AuditService
-from ssh_guard.core.allowlist import AllowlistManager
-from ssh_guard.db.database import Database
-from ssh_guard.db.repositories import RepositorySet
+from ssh_security_app.audit import AuditService
+from ssh_security_app.core.allowlist import AllowlistManager
+from ssh_security_app.db.database import Database
+from ssh_security_app.db.repositories import RepositorySet
 
 
 def build_manager(tmp_path):

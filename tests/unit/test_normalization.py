@@ -4,17 +4,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from ssh_guard.constants import (
+from ssh_security_app.constants import (
     AuthenticationEventType,
     AuthenticationResult,
     ParseStatus,
 )
-from ssh_guard.core.deduplication import EventDeduplicator
-from ssh_guard.core.normalization import (
+from ssh_security_app.core.deduplication import EventDeduplicator
+from ssh_security_app.core.normalization import (
     ensure_utc,
     normalize_authentication_event,
 )
-from ssh_guard.models import AuthenticationEvent
+from ssh_security_app.models import AuthenticationEvent
 
 
 def auth_event(event_id: str = "event-1") -> AuthenticationEvent:

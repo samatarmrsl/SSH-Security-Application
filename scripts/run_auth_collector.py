@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ssh_guard.main import main
+from ssh_security_app.main import main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

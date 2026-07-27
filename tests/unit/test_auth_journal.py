@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-import ssh_guard.collectors.auth_journal as auth_journal
-from ssh_guard.collectors.auth_journal import (
+import ssh_security_app.collectors.auth_journal as auth_journal
+from ssh_security_app.collectors.auth_journal import (
     AuthenticationJournalCollector,
     CollectorError,
 )
-from ssh_guard.config import AuthenticationSensorConfig
-from ssh_guard.constants import HealthState
+from ssh_security_app.config import AuthenticationSensorConfig
+from ssh_security_app.constants import HealthState
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
@@ -33,13 +33,19 @@ def test_build_command_uses_an_argument_list() -> None:
         "/usr/bin/journalctl",
         "-u",
         "ssh.service",
+        "SYSLOG_IDENTIFIER=sshd",
         "-o",
         "short-iso",
         "--no-pager",
+        "--quiet",
         "--since",
         "-5 minutes",
         "-f",
     ]
+
+    fresh_follow = collector.build_command(follow=True)
+
+    assert fresh_follow[-3:] == ["--lines", "0", "-f"]
 
 
 def test_fixture_mode_processes_each_nonempty_line() -> None:

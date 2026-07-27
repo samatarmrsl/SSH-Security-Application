@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from ssh_guard.constants import IPAddressCategory
-from ssh_guard.core.ip_validation import validate_ip_address
+from ssh_security_app.constants import IPAddressCategory
+from ssh_security_app.core.ip_validation import validate_ip_address
 
 
 @pytest.mark.parametrize(

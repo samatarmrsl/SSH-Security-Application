@@ -4,15 +4,15 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssh_guard.config import DetectionConfig
-from ssh_guard.constants import (
+from ssh_security_app.config import DetectionConfig
+from ssh_security_app.constants import (
     Decision,
     DetectionClassification,
     IPAddressCategory,
     OperatingMode,
 )
-from ssh_guard.core.classification import DecisionContext, classify_score, decide
-from ssh_guard.models import CorrelationResult, IPValidationResult
+from ssh_security_app.core.classification import DecisionContext, classify_score, decide
+from ssh_security_app.models import CorrelationResult, IPValidationResult
 
 
 @pytest.mark.parametrize(
@@ -79,6 +79,13 @@ def context(**overrides) -> DecisionContext:
 
 def test_simulation_mode_produces_would_block() -> None:
     assert decide(context()).decision is Decision.WOULD_BLOCK
+
+
+def test_log_only_mode_never_approves_a_firewall_change() -> None:
+    result = decide(context(mode=OperatingMode.LOG_ONLY))
+
+    assert result.decision is Decision.LOG_DETECTION
+    assert "never changes the firewall" in result.reason
 
 
 def test_no_network_evidence_suppresses_action() -> None:

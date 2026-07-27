@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssh_guard.collectors.auth_parser import parse_authentication_line
-from ssh_guard.constants import (
+from ssh_security_app.collectors.auth_parser import parse_authentication_line
+from ssh_security_app.constants import (
     AuthenticationEventType,
     AuthenticationResult,
     ParseStatus,
