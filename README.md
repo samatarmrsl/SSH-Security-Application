@@ -5,20 +5,7 @@ authentication records and TCP destination-port 22 metadata, correlates both
 evidence sources by IP address and time, and creates explainable brute-force
 risk detections.
 
-This is an original implementation. It does **not** install, import, wrap, or
-invoke the existing SSHGuard/`sshguard` product. To avoid that naming
-collision, this project uses the name **SSH Security Application**, the Python
-package `ssh_security_app`, the command `ssh-security-app`, and the dedicated
-iptables chain `SSH_SECURITY_APP`.
-
-It is intended for an authorized Ubuntu virtual lab and the SPR888 SSH Security
-Monitoring and Response project. Use it only on systems and networks you own or
-have explicit permission to test.
-
-New to the project? Start with the
-[Ubuntu 20.04 security VM and Kali attacker VM tutorial](#beginner-tutorial-ubuntu-2004-security-vm-and-kali-attacker-vm).
-
-Stages 1–8 are implemented. The application collects, normalizes, deduplicates,
+The application collects, normalizes, deduplicates,
 stores, correlates, scores, classifies, displays, and audits evidence; creates
 guarded temporary blocks; automatically expires them; processes SQLite-backed
 manual-unblock requests; reconciles database and firewall state; and provides
@@ -27,15 +14,16 @@ default: a high-risk result says `WOULD_BLOCK`, but no firewall command is
 executed unless Automatic Response Mode and an explicit response path are
 selected.
 
+
 ## Purpose and use cases
 
-The project helps a lab administrator or cybersecurity student:
+The project helps:
 
 - Collect successful and failed OpenSSH authentication events.
 - Collect only metadata summaries for TCP connections to the configured SSH
   port; it does not inspect packet payloads.
 - Quarantine unsupported, malformed, or invalid evidence instead of guessing.
-- Normalize timestamps and IP addresses and reject duplicate records.
+- Normalizing timestamps and IP addresses and rejecting duplicate records.
 - Maintain a history profile for each observed source IP.
 - Correlate authentication and network evidence in a five-minute window.
 - Calculate an explainable risk score from 0 to 100.
@@ -59,8 +47,6 @@ The project helps a lab administrator or cybersecurity student:
 - Reconcile active SQLite blocks with project-owned rules after worker startup.
 - Reproduce the pipeline safely with sanitized fixture files.
 
-The application does not collect attempted passwords, private keys, SSH payload
-contents, or decrypted traffic.
 
 ## Work completed so far
 
@@ -226,30 +212,6 @@ contents, or decrypted traffic.
 - Architecture, database, testing, recovery, setup, live-validation, and
   troubleshooting documentation.
 
-## Validation status and remaining work
-
-The implementation and automated tests for all eight stages are complete.
-Acceptance testing has covered clean installation, packaged defaults/assets,
-fresh database startup, fixture replay and deduplication, live OpenSSH journal
-and tcpdump collection, managed services, dashboard restart/persistence, and
-the complete real-iptables block, automatic-expiry, manual-unblock,
-reconciliation, and cleanup lifecycle. The authorized external-client test
-also confirmed that Kali `192.168.12.3` could reach Ubuntu
-`192.168.12.1`, trigger detection, receive the temporary project-owned
-iptables block, and reconnect after the rule expired.
-
-No implementation stage remains. Before the final demonstration, repeat the
-short live test below and verify the dashboard's firewall-block lifecycle and
-source-IP detail views against fresh data. Production hardening or deployment
-outside this isolated lab is intentionally outside the current project scope.
-
-## Branch workflow
-
-- `main` is the stable, fully tested implementation documented in this README.
-- `Dev` starts from the same stable implementation and is the branch for
-  experimental evaluation and future changes.
-- Perform and test new work on `Dev`; merge or fast-forward it to `main` only
-  after the complete validation suite and live-lab acceptance test pass.
 
 ## Current data flow
 
@@ -379,11 +341,8 @@ SSH-Security-Application/
     └── unit/
 ```
 
-## Beginner tutorial: Ubuntu 20.04 security VM and Kali attacker VM
+## Get Started - Guide
 
-This is the recommended start-to-finish lab procedure. It assumes no prior
-knowledge of Python virtual environments, systemd, tcpdump, or iptables. Read
-each step before entering its commands.
 
 ### 1. Understand the two machines
 
@@ -398,30 +357,24 @@ The dashboard URL is `http://192.168.12.1:8501` and the SSH service listens at
 `192.168.12.1:22`. The temporary block lasts 120 seconds by default.
 
 The names `ens37` and `eth0` are not universal. A hypervisor or Linux
-installation may call them `ens33`, `enp0s8`, or something similar. Whenever
-your interface name differs, replace the documented name with the one printed
-by `ip -br -4 address`.
+installation may call them `ens33`, `enp0s8`, or something similar.
 
-Only use this procedure on VMs and networks that you own or are explicitly
-authorized to test. Do not point Hydra at an Internet host, production server,
-classmate's VM, or management address.
 
 ### 2. Create and connect the virtual machines
 
-Create the following VMs in VMware, VirtualBox, or an equivalent hypervisor:
+Create the following VMs in VMware:
 
 - Ubuntu 20.04 LTS with at least 2 virtual CPUs, 4 GB RAM, and 20 GB disk.
 - Kali Linux with at least 2 virtual CPUs, 2 GB RAM, and 20 GB disk.
 - One isolated/host-only virtual network shared by both VMs.
-- An optional separate NAT adapter for software downloads. Do not use that
-  management adapter as the attack-test interface.
+- An *optional separate NAT adapter for software downloads if needed.
+- An *optional Windows 10 machine as a client for brute-force detection and response evaluation.
 
 Configure the isolated adapters so Ubuntu uses `192.168.12.1/24` and Kali uses
 `192.168.12.3/24`. Leave the gateway empty on an isolated adapter. If the
 addresses are already supplied by the lab or hypervisor, do not change them.
 
-Take a snapshot of both VMs before changing firewall configuration. A useful
-snapshot name is `before-ssh-security-application`.
+Take a snapshot of both VMs before changing firewall configuration in case something does not function as intended.
 
 ### 3. Verify the isolated network
 
