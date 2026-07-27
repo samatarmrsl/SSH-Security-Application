@@ -215,7 +215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Configured mode={settings.response.mode.value}; active mode={active_mode.value}")
         return 0
     if args.command == "inspect":
-        return _run_inspection(args, repositories, active_mode)
+        return _run_inspection(args, settings, repositories, active_mode)
     if args.command == "service":
         return _run_application_service(settings, database, repositories, audit, health)
 
@@ -245,10 +245,16 @@ def _positive_int(value: str) -> int:
 
 def _run_inspection(
     args: argparse.Namespace,
+    settings: Settings,
     repositories: RepositorySet,
     active_mode: OperatingMode,
 ) -> int:
-    data = DashboardDataService(repositories)
+    data = DashboardDataService(
+        repositories,
+        iptables_path=settings.response.iptables_path,
+        iptables_chain=settings.response.iptables_chain,
+        ssh_port=settings.network_sensor.ssh_port,
+    )
     views = {
         "overview": lambda: data.overview_dict(active_mode),
         "detections": lambda: data.detection_rows(args.limit),

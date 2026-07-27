@@ -15,6 +15,9 @@ It is intended for an authorized Ubuntu virtual lab and the SPR888 SSH Security
 Monitoring and Response project. Use it only on systems and networks you own or
 have explicit permission to test.
 
+New to the project? Start with the
+[Ubuntu 20.04 security VM and Kali attacker VM tutorial](#beginner-tutorial-ubuntu-2004-security-vm-and-kali-attacker-vm).
+
 Stages 1–8 are implemented. The application collects, normalizes, deduplicates,
 stores, correlates, scores, classifies, displays, and audits evidence; creates
 guarded temporary blocks; automatically expires them; processes SQLite-backed
@@ -42,6 +45,13 @@ The project helps a lab administrator or cybersecurity student:
 - Record evidence, detections, decisions, health, and audit history in SQLite.
 - Review detections, active blocks, allowlist history, action requests, audits,
   and component health in a project-owned, unprivileged web dashboard.
+- Follow each firewall block through its complete lifecycle, including the
+  removal time and whether it expired automatically or was removed manually.
+- Display the exact project-owned iptables `INPUT` jump and source-specific
+  TCP/22 DROP rule associated with each block.
+- Select an observed source IP to review its stored profile, risk explanation,
+  detection history, sanitized authentication evidence, network metadata, and
+  block history without using an external IP-enrichment service.
 - In explicitly enabled Automatic Response Mode, add a validated high-risk IPv4
   source to the dedicated project firewall chain for automatic expiration.
 - Request an early manual unblock through SQLite without giving the dashboard
@@ -192,8 +202,15 @@ contents, or decrypted traffic.
 
 ### Stage 8 — Final dashboard, services, tests, and documentation
 
-- Dashboard pages for overview, detections, active blocks with time remaining,
+- Dashboard pages for overview, detections, firewall-block lifecycle,
   allowlist management/history, security audit/action history, and health.
+- Active-block countdowns plus retained removed-block rows that clearly show
+  when and how the rule was removed.
+- Exact, copyable iptables rule text for the project-chain jump and each
+  offending source's DROP rule; the dashboard derives this from validated
+  configuration and stored block data without gaining firewall privileges.
+- Selectable source IPs with an owned detail drawer for locally stored profile,
+  risk, detection, block, authentication, and network evidence.
 - Project-owned responsive HTML, CSS, and JavaScript served by Python's standard
   library; no Streamlit, pandas, CDN, or external dashboard runtime.
 - Same-origin JSON endpoints with CSRF protection, request-size limits,
@@ -209,22 +226,30 @@ contents, or decrypted traffic.
 - Architecture, database, testing, recovery, setup, live-validation, and
   troubleshooting documentation.
 
-## Remaining validation
+## Validation status and remaining work
 
-The code and automated tests for all eight stages are complete. Local acceptance
-testing has also covered a clean wheel installation, packaged defaults/assets,
-fresh database startup, fixture replay and deduplication, the host's real
-OpenSSH journal and tcpdump processes, managed-service shutdown, dashboard
-restart/persistence, and the complete real-iptables block, automatic-expiry,
-manual-unblock, reconciliation, and cleanup lifecycle inside an isolated
-network namespace.
+The implementation and automated tests for all eight stages are complete.
+Acceptance testing has covered clean installation, packaged defaults/assets,
+fresh database startup, fixture replay and deduplication, live OpenSSH journal
+and tcpdump collection, managed services, dashboard restart/persistence, and
+the complete real-iptables block, automatic-expiry, manual-unblock,
+reconciliation, and cleanup lifecycle. The authorized external-client test
+also confirmed that Kali `192.168.12.3` could reach Ubuntu
+`192.168.12.1`, trigger detection, receive the temporary project-owned
+iptables block, and reconnect after the rule expired.
 
-The remaining environment-specific test is the external-client demonstration:
-install/start the capability-limited systemd service, generate controlled
-failed SSH attempts from the disposable client, and observe the two-minute rule
-on the host firewall. Those steps require the operator's sudo authentication
-and the verified disposable-client address; the exact commands are documented
-below.
+No implementation stage remains. Before the final demonstration, repeat the
+short live test below and verify the dashboard's firewall-block lifecycle and
+source-IP detail views against fresh data. Production hardening or deployment
+outside this isolated lab is intentionally outside the current project scope.
+
+## Branch workflow
+
+- `main` is the stable, fully tested implementation documented in this README.
+- `Dev` starts from the same stable implementation and is the branch for
+  experimental evaluation and future changes.
+- Perform and test new work on `Dev`; merge or fast-forward it to `main` only
+  after the complete validation suite and live-lab acceptance test pass.
 
 ## Current data flow
 
@@ -354,9 +379,563 @@ SSH-Security-Application/
     └── unit/
 ```
 
-## Complete Ubuntu setup
+## Beginner tutorial: Ubuntu 20.04 security VM and Kali attacker VM
 
-These steps assume Ubuntu 20.04 or newer and Python 3.8 or newer. Run each
+This is the recommended start-to-finish lab procedure. It assumes no prior
+knowledge of Python virtual environments, systemd, tcpdump, or iptables. Read
+each step before entering its commands.
+
+### 1. Understand the two machines
+
+This project uses two virtual machines on an isolated lab network:
+
+| Role | Operating system | Interface | IPv4 address | Purpose |
+|---|---|---|---|---|
+| Security VM | **Ubuntu 20.04 LTS** | `ens37` | `192.168.12.1/24` | Runs OpenSSH, detection, SQLite, dashboard, and iptables response |
+| Attacker VM | **Kali Linux** | `eth0` | `192.168.12.3/24` | Generates authorized failed SSH logins |
+
+The dashboard URL is `http://192.168.12.1:8501` and the SSH service listens at
+`192.168.12.1:22`. The temporary block lasts 120 seconds by default.
+
+The names `ens37` and `eth0` are not universal. A hypervisor or Linux
+installation may call them `ens33`, `enp0s8`, or something similar. Whenever
+your interface name differs, replace the documented name with the one printed
+by `ip -br -4 address`.
+
+Only use this procedure on VMs and networks that you own or are explicitly
+authorized to test. Do not point Hydra at an Internet host, production server,
+classmate's VM, or management address.
+
+### 2. Create and connect the virtual machines
+
+Create the following VMs in VMware, VirtualBox, or an equivalent hypervisor:
+
+- Ubuntu 20.04 LTS with at least 2 virtual CPUs, 4 GB RAM, and 20 GB disk.
+- Kali Linux with at least 2 virtual CPUs, 2 GB RAM, and 20 GB disk.
+- One isolated/host-only virtual network shared by both VMs.
+- An optional separate NAT adapter for software downloads. Do not use that
+  management adapter as the attack-test interface.
+
+Configure the isolated adapters so Ubuntu uses `192.168.12.1/24` and Kali uses
+`192.168.12.3/24`. Leave the gateway empty on an isolated adapter. If the
+addresses are already supplied by the lab or hypervisor, do not change them.
+
+Take a snapshot of both VMs before changing firewall configuration. A useful
+snapshot name is `before-ssh-security-application`.
+
+### 3. Verify the isolated network
+
+On the **Ubuntu 20.04 security VM**, open a terminal and run:
+
+```bash
+hostname
+ip -br -4 address
+ip route
+```
+
+Confirm that the output contains:
+
+```text
+ens37    UP    192.168.12.1/24
+```
+
+On the **Kali attacker VM**, run:
+
+```bash
+hostname
+ip -br -4 address
+ip route
+```
+
+Confirm that the output contains:
+
+```text
+eth0    UP    192.168.12.3/24
+```
+
+Test basic connectivity from Kali:
+
+```bash
+ping -c 4 192.168.12.1
+```
+
+If this fails, stop here and correct the virtual adapters, interface names, IP
+addresses, and subnet masks. Both addresses must be unique and inside
+`192.168.12.0/24`.
+
+If Ubuntu's isolated interface does not yet have an address, create a narrow
+Netplan file on **Ubuntu 20.04**:
+
+```bash
+sudo nano /etc/netplan/99-ssh-security-lab.yaml
+```
+
+Enter the following, replacing `ens37` only if Ubuntu reported a different lab
+interface:
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens37:
+      dhcp4: false
+      addresses:
+        - 192.168.12.1/24
+```
+
+Save with `Ctrl+O`, press `Enter`, exit with `Ctrl+X`, and validate:
+
+```bash
+sudo netplan generate
+sudo netplan try
+```
+
+Confirm the proposed configuration when prompted, then verify:
+
+```bash
+ip -br -4 address show ens37
+```
+
+If Kali's isolated `eth0` does not yet have an address, use NetworkManager on
+**Kali**:
+
+```bash
+nmcli device status
+sudo nmcli connection add \
+  type ethernet \
+  con-name ssh-security-lab \
+  ifname eth0 \
+  ipv4.method manual \
+  ipv4.addresses 192.168.12.3/24 \
+  ipv4.never-default yes \
+  ipv6.method disabled
+sudo nmcli connection up ssh-security-lab
+ip -br -4 address show eth0
+```
+
+Run those configuration commands only on the isolated lab adapters. If a
+profile named `ssh-security-lab` already exists, inspect it instead of adding a
+duplicate:
+
+```bash
+nmcli connection show ssh-security-lab
+```
+
+### 4. Prepare Ubuntu 20.04
+
+Run these commands on the **Ubuntu security VM**:
+
+```bash
+sudo apt update
+sudo apt install -y git ca-certificates
+```
+
+When `sudo` asks for a password, type the Ubuntu user's password and press
+`Enter`. Linux does not display dots or asterisks while a sudo password is
+being typed; this is normal.
+
+Create a workspace, clone the final `main` branch, and enter the project:
+
+```bash
+mkdir -p "$HOME/Documents"
+cd "$HOME/Documents"
+git clone --branch main --single-branch \
+  https://github.com/samatarmrsl/SSH-Security-Application.git
+cd SSH-Security-Application
+git status
+git branch --show-current
+```
+
+Expected branch:
+
+```text
+main
+```
+
+If the repository already exists, update it without overwriting local work:
+
+```bash
+cd "$HOME/Documents/SSH-Security-Application"
+git status
+git fetch origin
+git switch main
+git pull --ff-only origin main
+```
+
+Do not pull over files reported as locally modified. Back up, commit, or stash
+your own changes first.
+
+### 5. Understand the firewall choice
+
+The application uses **iptables**, not firewalld or SSHGuard, to block an
+offending source. It creates only the dedicated `SSH_SECURITY_APP` chain, an
+SSH-port jump from `INPUT`, and exact source-specific DROP rules.
+
+Check optional firewall frontends:
+
+```bash
+systemctl is-active firewalld.service || true
+systemctl is-enabled firewalld.service || true
+sudo ufw status
+```
+
+On this isolated teaching lab, firewalld is intentionally stopped to prevent it
+from reconstructing iptables rules during the demonstration:
+
+```bash
+sudo systemctl disable --now firewalld.service
+```
+
+If Ubuntu says the unit does not exist, firewalld is not installed and no
+action is required. Confirm the resulting state:
+
+```bash
+systemctl is-active firewalld.service || true
+systemctl is-enabled firewalld.service || true
+```
+
+Expected output is `inactive` and `disabled`. Notice that a service can be
+*disabled* at boot but still *active* right now; `disable --now` handles both.
+
+UFW may remain active because the installer can add source-limited lab access
+rules. On this specific isolated VM it is currently disabled. Do not disable a
+host firewall on an Internet-facing or production system merely to follow this
+tutorial.
+
+### 6. Preview the automated installation
+
+The installer works with the operating-system `python3`; a virtual environment
+does not need to be created manually. First run its read-only preview:
+
+```bash
+cd "$HOME/Documents/SSH-Security-Application"
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3
+```
+
+The arguments mean:
+
+- `--lab-interface ens37`: capture TCP/22 metadata on Ubuntu's isolated
+  interface.
+- `--server-ip 192.168.12.1`: protect and serve the Ubuntu lab address.
+- `--client-ip 192.168.12.3`: allow only this disposable Kali address to be
+  used as the controlled test source.
+- no `--apply`: print the plan without changing the VM.
+
+The important preview lines should resemble:
+
+```text
+server IPv4: 192.168.12.1
+disposable client IPv4: 192.168.12.3
+SSH endpoint: 192.168.12.1:22
+dashboard: http://192.168.12.1:8501
+response mode: automatic_response
+block duration: 120 seconds
+project chain: SSH_SECURITY_APP
+```
+
+Do not continue if the interface or addresses are wrong.
+
+### 7. Install the complete security application
+
+Apply the plan from the Ubuntu project directory:
+
+```bash
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --apply \
+  --confirm-firewall-changes
+```
+
+The explicit firewall confirmation is required because the script creates the
+project-owned iptables chain. The installer then:
+
+1. Installs Python, OpenSSH, SQLite, tcpdump, iptables, and supporting packages.
+2. Enables and starts the detected OpenSSH service.
+3. Grants tcpdump only the packet-capture capabilities it requires.
+4. Creates the unprivileged `sshsecurityapp` service account.
+5. Copies the application to `/opt/ssh-security-application`.
+6. Writes production configuration to `/etc/ssh-security-app/config.json`.
+7. Creates or upgrades `/var/lib/ssh-security-app/ssh_security_app.db`.
+8. Installs and starts the firewall, detector/response, and dashboard services.
+9. Creates and verifies `SSH_SECURITY_APP` without flushing `INPUT`.
+10. Verifies the dashboard and SSH listener.
+
+The script does not run Hydra and does not generate attack traffic.
+
+When packages are already installed, a later code redeployment can skip only
+the apt step:
+
+```bash
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --skip-package-install \
+  --apply \
+  --confirm-firewall-changes
+```
+
+### 8. Verify Ubuntu before using Kali
+
+Run the installer verifier:
+
+```bash
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --verify-only
+```
+
+Every reported item should say `PASS`. Then inspect the services:
+
+```bash
+systemctl status ssh.service --no-pager
+systemctl status ssh-security-app-firewall.service --no-pager
+systemctl status ssh-security-app.service --no-pager
+systemctl status ssh-security-app-dashboard.service --no-pager
+```
+
+Press `q` if a status command opens a pager. Verify listeners:
+
+```bash
+ss -lnt | grep -E ':22|:8501'
+```
+
+Inspect the dedicated firewall state:
+
+```bash
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -L SSH_SECURITY_APP -n -v --line-numbers
+sudo iptables -L INPUT -n -v --line-numbers
+```
+
+Before the attack, the project chain should exist but should not contain a DROP
+rule for `192.168.12.3`.
+
+Open the dashboard on Ubuntu or another authorized lab workstation:
+
+```text
+http://192.168.12.1:8501
+```
+
+Use `Ctrl+Shift+R` for a hard refresh if an older dashboard was previously
+loaded.
+
+### 9. Prepare the Kali attacker VM
+
+Run only on **Kali**:
+
+```bash
+sudo apt update
+sudo apt install -y hydra netcat-openbsd openssh-client
+mkdir -p "$HOME/ssh-security-demo"
+cd "$HOME/ssh-security-demo"
+```
+
+Confirm that Ubuntu SSH is reachable before starting the controlled test:
+
+```bash
+nc -vz -w 5 192.168.12.1 22
+```
+
+Expected result:
+
+```text
+Connection to 192.168.12.1 22 port [tcp/ssh] succeeded!
+```
+
+Do not run Hydra if this initial connection test fails. A pre-test timeout is a
+network or service problem, not successful brute-force blocking.
+
+Create lab-only username and password candidate files:
+
+```bash
+printf '%s\n' \
+demo_admin \
+demo_backup \
+demo_database \
+demo_operator \
+demo_service \
+demo_support > usernames.txt
+
+printf '%s\n' \
+WrongPassword1 \
+WrongPassword2 \
+WrongPassword3 \
+WrongPassword4 \
+WrongPassword5 > passwords.txt
+```
+
+These are deliberately fake values. Never put a real password in the test
+files.
+
+### 10. Open the Ubuntu monitoring views
+
+Before launching Hydra, open three Ubuntu terminals.
+
+In Ubuntu terminal 1, follow application activity:
+
+```bash
+journalctl -u ssh-security-app.service -f
+```
+
+In Ubuntu terminal 2, watch only the project chain:
+
+```bash
+sudo watch -n 1 'iptables -S SSH_SECURITY_APP'
+```
+
+In a browser, open:
+
+```text
+http://192.168.12.1:8501
+```
+
+Stop either terminal view later with `Ctrl+C`.
+
+### 11. Run the authorized Kali demonstration
+
+From `~/ssh-security-demo` on Kali:
+
+```bash
+timeout 90s hydra \
+  -L usernames.txt \
+  -P passwords.txt \
+  -t 2 \
+  -W 3 \
+  -V \
+  -I \
+  -o hydra-results.txt \
+  ssh://192.168.12.1
+```
+
+Hydra begins failed SSH logins. Once the application detects enough
+corroborated activity, Ubuntu inserts this source-specific rule:
+
+```text
+-A SSH_SECURITY_APP -s 192.168.12.3/32 -p tcp -m tcp --dport 22 -j DROP
+```
+
+Hydra will then report timeouts because the temporary block is working. That is
+the expected end of this controlled test.
+
+On Ubuntu, confirm the rule independently:
+
+```bash
+sudo iptables -C SSH_SECURITY_APP \
+  -s 192.168.12.3 \
+  -p tcp \
+  --dport 22 \
+  -j DROP
+echo "iptables check status=$?"
+```
+
+Status `0` means the exact rule exists. Display the complete chain:
+
+```bash
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -L SSH_SECURITY_APP -n -v --line-numbers
+```
+
+In the dashboard:
+
+1. Open **Detections** and confirm `192.168.12.3` is High Risk with decision
+   `BLOCK`.
+2. Open **Firewall Blocks** and confirm the active 120-second countdown.
+3. Confirm the exact `INPUT` jump and source-specific DROP rule are displayed.
+4. Select `192.168.12.3` to view its stored evidence and risk breakdown.
+
+### 12. Confirm automatic removal
+
+Wait approximately two minutes. The response worker checks expiration every
+ten seconds, so removal can occur a few seconds after the displayed countdown
+reaches zero.
+
+On Ubuntu:
+
+```bash
+sudo iptables -C SSH_SECURITY_APP \
+  -s 192.168.12.3 \
+  -p tcp \
+  --dport 22 \
+  -j DROP
+echo "iptables check status=$?"
+```
+
+Status `1` now means the exact rule is absent. The dashboard's active card
+should disappear, while block history should retain:
+
+```text
+Status: Expired
+Removal method: Automatic
+Outcome: Temporary rule removed automatically
+```
+
+The exact original DROP rule remains visible for demonstration and audit
+purposes.
+
+From Kali, confirm SSH is reachable again:
+
+```bash
+nc -vz -w 5 192.168.12.1 22
+```
+
+### 13. Inspect stored results
+
+Run on Ubuntu:
+
+```bash
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect detections \
+  --limit 10
+```
+
+Inspect current active blocks:
+
+```bash
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect active-blocks
+```
+
+After automatic expiration, the second command should return an empty list.
+Historical results remain in SQLite and on the dashboard.
+
+### 14. Restart or shut down cleanly
+
+The installed services start automatically on future Ubuntu boots. Verify them
+after a restart with:
+
+```bash
+systemctl status ssh-security-app-firewall.service --no-pager
+systemctl status ssh-security-app.service --no-pager
+systemctl status ssh-security-app-dashboard.service --no-pager
+```
+
+For an orderly lab shutdown:
+
+```bash
+sudo systemctl stop ssh-security-app-dashboard.service
+sudo systemctl stop ssh-security-app.service
+sudo systemctl stop ssh-security-app-firewall.service
+```
+
+Stopping the firewall service removes only recognized project-owned rules. It
+does not flush `INPUT` or change the host's default policy.
+
+## Alternative setup and installer reference
+
+The documented security VM uses Ubuntu 20.04 LTS and Python 3.8. These
+alternative/manual commands also work on many newer Ubuntu releases. Run each
 command in order. Commands beginning with `sudo` change host configuration and
 should be run manually only on the authorized lab VM.
 
@@ -582,7 +1161,7 @@ ss -lnt
 
 Look for a local listening address whose port is `:22`.
 
-### 5. Clone the repository and select `Dev`
+### 5. Clone the repository and select `main`
 
 For a new clone:
 
@@ -591,8 +1170,8 @@ cd "$HOME"
 git clone https://github.com/samatarmrsl/SSH-Security-Application.git
 cd SSH-Security-Application
 git fetch origin
-git switch Dev
-git pull --ff-only origin Dev
+git switch main
+git pull --ff-only origin main
 ```
 
 For an existing clone:
@@ -601,8 +1180,8 @@ For an existing clone:
 cd "$HOME/SSH-Security-Application"
 git status
 git fetch origin
-git switch Dev
-git pull --ff-only origin Dev
+git switch main
+git pull --ff-only origin main
 ```
 
 Do not pull over uncommitted local changes. Commit, stash, or back them up first.
@@ -867,10 +1446,32 @@ http://192.168.56.10:8501
 
 Stop it with `Ctrl+C`. Never launch the dashboard with `sudo`; the launcher
 refuses to run as root. The interface refreshes every five seconds and includes
-Overview, Detections, Active Blocks, Allowlist, Audit Trail, and System Health.
-The dashboard can update the allowlist and queue manual
-unblock requests in SQLite, but it has no firewall execution path. The separate
-response worker performs every firewall validation and mutation.
+Overview, Detections, Firewall Blocks, Allowlist, Audit Trail, and System
+Health. Firewall Blocks shows both active countdowns and retained lifecycle
+history. An expired or manually removed row includes its removal time, method,
+firewall result, and a plain-language status. Select a source IP in a detection
+or block view to open its detail drawer with:
+
+- first/last seen times and cumulative local counters;
+- current allowlist and block status;
+- the latest stored score, classification, decision reason, and risk
+  breakdown;
+- detection and block history;
+- sanitized authentication evidence and TCP/22 metadata.
+
+Each active block card also shows the exact `iptables -S`-style rules involved:
+the TCP/22 jump from `INPUT` into the dedicated project chain and the
+source-specific DROP rule. The DROP rule remains visible in block history and
+the IP detail drawer after its removal. This is a display of validated
+configuration and stored state; the dashboard never executes `iptables`.
+
+The IP detail view uses only the application's SQLite evidence. It makes no
+external reputation or geolocation request and never exposes captured
+passwords, payloads, or raw journal messages.
+
+The dashboard can update the allowlist and queue manual-unblock requests in
+SQLite, but it has no firewall execution path. The separate response worker
+performs every firewall validation and mutation.
 
 ## Stage 6 firewall response
 
@@ -1373,6 +1974,17 @@ sudo iptables -S SSH_SECURITY_APP
 The detection should be `High Risk`/`BLOCK`, the database block should be
 `Active`, and the exact check should return status 0.
 
+Open `http://192.168.12.1:8501` from the authorized lab network. The new
+detection should appear on Overview and Detections. Open Firewall Blocks to
+confirm that `192.168.12.3` has an active countdown, then select the IP address.
+Its detail drawer should show the stored score and risk breakdown, failed
+authentication evidence, TCP/22 metadata, active block record, and exact DROP
+rule:
+
+```text
+-A SSH_SECURITY_APP -s 192.168.12.3/32 -p tcp -m tcp --dport 22 -j DROP
+```
+
 ### 6. Test manual removal or automatic expiration
 
 While the block is active, retry once from the disposable client:
@@ -1431,6 +2043,12 @@ watch -n 5 'sudo -u sshsecurityapp \
 Stop `watch` with `Ctrl+C`. After roughly two minutes, retry the client SSH
 command. It should reach the password prompt again, confirming automatic
 expiration and rule removal.
+
+Return to Firewall Blocks or select Refresh data. The active card should be
+gone, but the retained block-history row must now show `Expired`, the removal
+time, `Automatic`, and `Temporary rule removed automatically`. Select
+`192.168.12.3` again to confirm that the same completed lifecycle is retained
+in its IP detail drawer.
 
 ### 7. Test restart reconciliation and cleanup
 
@@ -1609,8 +2227,8 @@ ruff format --check .
 python -m compileall -q src scripts
 ```
 
-At completion of Stages 1–8, the suite contains 158 passing unit and integration
-tests with 81% overall statement/branch coverage on Python 3.8. It covers safe
+At completion of Stages 1–8, the suite contains 172 passing unit and integration
+tests with 80% overall statement/branch coverage on Python 3.8. It covers safe
 modes, all dashboard pages, exact firewall commands, idempotent chain/rule
 handling, failure rollback, Automatic Response, expiration retry, manual
 unblocking, reconciliation, safe cleanup, and managed shutdown.
@@ -1624,6 +2242,337 @@ tail -f logs/ssh_security_app.log
 ```
 
 ## Troubleshooting
+
+### Start here: collect a small diagnostic snapshot
+
+Run these commands on Ubuntu before changing anything. They identify most
+network, service, permission, and configuration problems:
+
+```bash
+date -Is
+timedatectl status
+ip -br -4 address
+ip route
+systemctl is-active ssh.service
+systemctl is-active ssh-security-app-firewall.service
+systemctl is-active ssh-security-app.service
+systemctl is-active ssh-security-app-dashboard.service
+sudo iptables -S SSH_SECURITY_APP
+sudo iptables -L INPUT -n -v --line-numbers
+```
+
+Then run the application verifier from the repository:
+
+```bash
+cd "$HOME/Documents/SSH-Security-Application"
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --verify-only
+```
+
+Read the first `FAIL` line and use the matching subsection below. Avoid
+flushing iptables, deleting the database, or running the complete application
+as root as a first response.
+
+### The setup script rejects the interface or server address
+
+List active IPv4 interfaces:
+
+```bash
+ip -br -4 address
+ip -j -4 address show up
+```
+
+The value passed to `--lab-interface` must be the interface that owns the
+security VM's lab address. If Ubuntu shows:
+
+```text
+ens37    UP    192.168.12.1/24
+```
+
+use:
+
+```bash
+--lab-interface ens37 --server-ip 192.168.12.1
+```
+
+Do not copy `ens37` blindly if your VM uses a different name.
+
+### The setup script says the client is outside the lab subnet
+
+Compare both addresses and subnet masks:
+
+```bash
+# Ubuntu
+ip -br -4 address show ens37
+
+# Kali
+ip -br -4 address show eth0
+```
+
+For this tutorial they must be `192.168.12.1/24` and
+`192.168.12.3/24`. An address such as `192.168.13.3` is not in the same `/24`
+subnet. Correct the virtual-network configuration instead of bypassing the
+installer's validation.
+
+### The setup script says the client is a protected server address
+
+The value passed to `--client-ip` must belong to Kali, not Ubuntu. Recheck:
+
+```bash
+# Ubuntu
+ip -br -4 address
+
+# Kali
+ip -br -4 address
+```
+
+Use `--server-ip 192.168.12.1 --client-ip 192.168.12.3`. The installer refuses
+to block any address assigned to the security VM.
+
+### Kali cannot ping Ubuntu
+
+On both VMs, confirm the isolated adapter is connected in the hypervisor and
+has the expected address:
+
+```bash
+ip -br -4 address
+ip route
+```
+
+From Kali:
+
+```bash
+ip route get 192.168.12.1
+ping -c 4 192.168.12.1
+```
+
+The selected route should use `eth0`, not a NAT or management interface. Verify
+that both VM adapters are attached to the exact same host-only/internal network
+and that the VMs do not share an IP address.
+
+### Kali reaches Ubuntu, but TCP port 22 times out before testing
+
+This is not an application block unless the source-specific DROP rule already
+exists. On Ubuntu:
+
+```bash
+systemctl status ssh.service --no-pager
+ss -lnt | sed -n '/:22/p'
+sudo iptables -S SSH_SECURITY_APP
+sudo ufw status
+systemctl is-active firewalld.service || true
+```
+
+Start OpenSSH if necessary:
+
+```bash
+sudo systemctl enable --now ssh.service
+```
+
+If a stale project rule for the disposable client exists, first let its worker
+expire it. For an authorized lab recovery, restart and verify the managed
+services:
+
+```bash
+sudo systemctl restart ssh-security-app-firewall.service
+sudo systemctl restart ssh-security-app.service
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --verify-only
+```
+
+Do not flush `INPUT`.
+
+### Hydra times out immediately
+
+Always establish the baseline from Kali before Hydra:
+
+```bash
+nc -vz -w 5 192.168.12.1 22
+```
+
+If this times out before any failed login is generated, troubleshoot the
+network and SSH listener. If it succeeds initially and begins timing out only
+after several failures, inspect Ubuntu:
+
+```bash
+sudo iptables -C SSH_SECURITY_APP \
+  -s 192.168.12.3 \
+  -p tcp \
+  --dport 22 \
+  -j DROP
+echo "iptables check status=$?"
+```
+
+Status `0` means Hydra's timeout is expected because the application block is
+active.
+
+### Hydra finishes but no detection or block appears
+
+Check the managed service and sensor health on Ubuntu:
+
+```bash
+systemctl status ssh-security-app.service --no-pager
+journalctl -u ssh-security-app.service -n 150 --no-pager
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect health
+```
+
+Confirm the production mode:
+
+```bash
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  mode-status
+```
+
+The live installer should report `automatic_response`. Simulation Mode creates
+`WOULD_BLOCK`, and Log Only Mode creates `LOG_DETECTION`; neither modifies
+iptables. Also confirm that Kali is attacking `192.168.12.1`, not the security
+VM's NAT or management address.
+
+### The application services fail after installation
+
+Inspect the exact failure rather than repeatedly reinstalling:
+
+```bash
+systemctl status ssh-security-app-firewall.service --no-pager
+systemctl status ssh-security-app.service --no-pager
+systemctl status ssh-security-app-dashboard.service --no-pager
+journalctl -u ssh-security-app-firewall.service -n 100 --no-pager
+journalctl -u ssh-security-app.service -n 150 --no-pager
+journalctl -u ssh-security-app-dashboard.service -n 100 --no-pager
+```
+
+Validate the installed configuration as the service account:
+
+```bash
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  validate-config
+```
+
+If the repository was updated, rerun the idempotent installer with
+`--skip-package-install` so `/opt` and the systemd services receive the new
+source.
+
+### Firewalld says `disabled`, but the installer still detects it
+
+`disabled` controls the next boot; it does not necessarily stop the current
+process. Check both values:
+
+```bash
+systemctl is-enabled firewalld.service || true
+systemctl is-active firewalld.service || true
+firewall-cmd --state 2>/dev/null || true
+```
+
+For this isolated iptables-only lab, stop it now and at future boots:
+
+```bash
+sudo systemctl disable --now firewalld.service
+systemctl is-active firewalld.service || true
+```
+
+Expected state is `inactive`. Do not run `firewall-cmd --reload` during the
+demonstration because firewalld can reconstruct iptables state.
+
+### The dashboard shows an older layout or omits exact rules
+
+First hard-refresh the browser with `Ctrl+Shift+R`. Then redeploy the current
+repository source:
+
+```bash
+cd "$HOME/Documents/SSH-Security-Application"
+git status
+git pull --ff-only origin main
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --skip-package-install \
+  --apply \
+  --confirm-firewall-changes
+```
+
+Confirm that the owned JavaScript asset is reachable:
+
+```bash
+python3 - <<'PY'
+import urllib.request
+
+url = "http://192.168.12.1:8501/assets/app.js"
+with urllib.request.urlopen(url, timeout=5) as response:
+    body = response.read().decode("utf-8")
+print(response.status, "SOURCE-SPECIFIC DROP" in body)
+PY
+```
+
+Expected output is `200 True`.
+
+### The dashboard and CLI appear to show different data
+
+The development configuration and production services use different SQLite
+files:
+
+```text
+Development: data/ssh_security_app_test.db or data/ssh_security_app.db
+Production:  /var/lib/ssh-security-app/ssh_security_app.db
+```
+
+For live-lab results, use the installed command and configuration:
+
+```bash
+sudo -u sshsecurityapp \
+  /opt/ssh-security-application/.venv/bin/ssh-security-app \
+  --config /etc/ssh-security-app/config.json \
+  inspect detections \
+  --limit 10
+```
+
+Running `.venv/bin/ssh-security-app --config config/local.json` queries the
+development database instead.
+
+### A two-minute block does not disappear exactly at 120 seconds
+
+The block duration is 120 seconds and the expiration worker wakes every ten
+seconds. A small delay after the countdown reaches zero is expected. Wait
+another ten seconds, refresh the dashboard, and inspect:
+
+```bash
+systemctl status ssh-security-app.service --no-pager
+journalctl -u ssh-security-app.service -n 100 --no-pager
+sudo iptables -S SSH_SECURITY_APP
+```
+
+If the rule remains substantially longer, follow the later section titled
+“A block reached its database expiration time but the rule remains.”
+
+### Detections are inconsistent between the two VMs
+
+Large clock differences can move events outside the five-minute correlation
+window. Check both Ubuntu and Kali:
+
+```bash
+date -Is
+timedatectl status
+```
+
+Enable network time synchronization on each VM:
+
+```bash
+sudo timedatectl set-ntp true
+timedatectl status
+```
 
 ### `python3 -m venv .venv` reports that `ensurepip` is unavailable
 
@@ -1811,6 +2760,27 @@ ssh-security-app --config config/local.json inspect detections --limit 20
 If a raw SQL query is required, use the physical column
 `network_event_count`; `network_connection_count` is the Python domain-model
 attribute, not a SQLite column.
+
+### Live-lab setup reports `--get-zone-of-interface ...: no zone`
+
+An interface that has no explicit firewalld zone uses firewalld's configured
+default zone. The setup script recognizes firewalld's status-2 `no zone`
+response and safely falls back to that default without permanently reassigning
+the interface. Inspect and preview the selection:
+
+```bash
+firewall-cmd --get-zone-of-interface ens37 || true
+firewall-cmd --get-default-zone
+python3 scripts/setup_live_lab.py \
+  --lab-interface ens37 \
+  --server-ip 192.168.12.1 \
+  --client-ip 192.168.12.3 \
+  --skip-package-install
+```
+
+The preview should report `host firewall frontend: firewalld` and
+`firewalld zone: public` on the documented lab VM. Do not manually reassign the
+interface merely to work around this message.
 
 ### `iptables` is missing or the configured path is wrong
 

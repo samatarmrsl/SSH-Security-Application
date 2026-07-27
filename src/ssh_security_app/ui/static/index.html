@@ -20,7 +20,7 @@
       <nav aria-label="Dashboard sections">
         <button class="nav-item active" data-view="overview"><span>01</span>Overview</button>
         <button class="nav-item" data-view="detections"><span>02</span>Detections</button>
-        <button class="nav-item" data-view="blocks"><span>03</span>Active blocks</button>
+        <button class="nav-item" data-view="blocks"><span>03</span>Firewall blocks</button>
         <button class="nav-item" data-view="allowlist"><span>04</span>Allowlist</button>
         <button class="nav-item" data-view="audit"><span>05</span>Audit trail</button>
         <button class="nav-item" data-view="health"><span>06</span>System health</button>
@@ -76,10 +76,19 @@
 
       <section id="view-blocks" class="view">
         <div class="section-intro">
-          <div><p class="eyebrow">TEMPORARY RESPONSE</p><h2>Active firewall blocks</h2></div>
-          <p>Unblock requests are written to SQLite and validated by the privileged response worker.</p>
+          <div><p class="eyebrow">TEMPORARY RESPONSE</p><h2>Firewall block lifecycle</h2></div>
+          <p>Active rules are shown with a countdown. Removed rules remain visible with their final status, removal time, and removal method.</p>
         </div>
         <div id="blocks-grid" class="cards-grid"></div>
+        <article class="panel spaced">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">RESPONSE HISTORY</p>
+              <h3>Active and removed blocks</h3>
+            </div>
+          </div>
+          <div class="table-wrap"><table id="block-history-table"></table></div>
+        </article>
       </section>
 
       <section id="view-allowlist" class="view">
@@ -118,6 +127,29 @@
         <div id="health-grid" class="cards-grid"></div>
       </section>
     </main>
+  </div>
+
+  <div id="ip-detail-overlay" class="detail-overlay" hidden>
+    <aside
+      id="ip-detail-drawer"
+      class="detail-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ip-detail-title"
+      tabindex="-1"
+    >
+      <header class="detail-header">
+        <div>
+          <p class="eyebrow">SOURCE INTELLIGENCE</p>
+          <h2 id="ip-detail-title">IP profile</h2>
+          <div id="ip-detail-badges" class="badge-row"></div>
+        </div>
+        <button id="ip-detail-close" class="icon-button" type="button" aria-label="Close IP details">×</button>
+      </header>
+      <div id="ip-detail-content" class="detail-content">
+        <div class="empty">Select an IP address to inspect its stored evidence.</div>
+      </div>
+    </aside>
   </div>
   <script src="/assets/app.js" defer></script>
 </body>

@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from ssh_security_app.audit import AuditService, configure_logging
 from ssh_security_app.config import Settings, load_config
@@ -62,6 +62,7 @@ class DashboardApplication:
             "overview": self.data.overview_dict(self.mode),
             "detections": self.data.detection_rows(),
             "active_blocks": self.data.active_block_rows(),
+            "block_history": self.data.block_history_rows(),
             "allowlist": self.data.allowlist_rows(),
             "audit": self.data.audit_rows(),
             "action_requests": self.data.action_request_rows(),
@@ -122,12 +123,37 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     server: DashboardHTTPServer
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlsplit(self.path).path
+        request = urlsplit(self.path)
+        path = request.path
         if path == "/api/session":
             self._send_json({"csrf_token": self.server.application.csrf_token})
             return
         if path == "/api/snapshot":
             self._send_json(self.server.application.snapshot())
+            return
+        if path == "/api/ip-details":
+            values = parse_qs(request.query).get("source_ip", [])
+            if len(values) != 1:
+                self._send_json(
+                    {"error": "One source_ip query parameter is required."},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                detail = self.server.application.data.ip_detail(values[0])
+            except ValueError as exc:
+                self._send_json(
+                    {"error": str(exc)},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if detail is None:
+                self._send_json(
+                    {"error": "No stored profile exists for this IP address."},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_json(detail)
             return
         asset = {
             "/": ("index.html", "text/html; charset=utf-8"),
@@ -245,7 +271,12 @@ def build_application(settings: Settings) -> tuple[DashboardApplication, HealthM
     ).activate(settings.response.mode)
     health = HealthMonitor(repositories.health)
     application = DashboardApplication(
-        DashboardDataService(repositories),
+        DashboardDataService(
+            repositories,
+            iptables_path=settings.response.iptables_path,
+            iptables_chain=settings.response.iptables_chain,
+            ssh_port=settings.network_sensor.ssh_port,
+        ),
         active_mode,
         DashboardActions(
             manual_unblocks=ManualUnblockRequestService(

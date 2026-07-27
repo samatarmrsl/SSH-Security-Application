@@ -142,9 +142,7 @@ def test_apply_runs_guarded_setup_and_writes_valid_config(
         "ssh_security_app.setup_environment.shutil.which",
         lambda name: f"/usr/bin/{name}",
     )
-    dashboard_asset = (
-        tmp_path / "src" / "ssh_security_app" / "ui" / "static" / "index.html"
-    )
+    dashboard_asset = tmp_path / "src" / "ssh_security_app" / "ui" / "static" / "index.html"
     dashboard_asset.parent.mkdir(parents=True)
     dashboard_asset.write_text("<!doctype html>", encoding="utf-8")
     commands = []

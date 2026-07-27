@@ -15,6 +15,7 @@ from ssh_security_app.live_lab_setup import (
     apply_plan,
     build_live_config,
     create_plan,
+    detect_firewalld_zone,
     firewalld_rich_rule,
     main,
     verify_installation,
@@ -102,6 +103,44 @@ def test_plan_autodetects_server_and_firewalld_zone(monkeypatch) -> None:
     assert plan.firewall_frontend == "firewalld"
     assert plan.firewalld_zone == "public"
     assert plan.protected_addresses == ("192.168.13.128", "192.168.12.1")
+
+
+def test_firewalld_zone_falls_back_to_default_when_interface_has_no_zone(
+    monkeypatch,
+) -> None:
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if command[-2:] == ["--get-zone-of-interface", "ens37"]:
+            return subprocess.CompletedProcess(command, 2, "", "no zone\n")
+        if command[-1:] == ["--get-default-zone"]:
+            return subprocess.CompletedProcess(command, 0, "public\n", "")
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(
+        "ssh_security_app.live_lab_setup.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    assert detect_firewalld_zone("ens37", runner=runner) == "public"
+    assert commands == [
+        ["/usr/bin/firewall-cmd", "--get-zone-of-interface", "ens37"],
+        ["/usr/bin/firewall-cmd", "--get-default-zone"],
+    ]
+
+
+def test_firewalld_zone_rejects_an_unexpected_query_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ssh_security_app.live_lab_setup.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    def runner(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 2, "", "DBUS connection failed\n")
+
+    with pytest.raises(LiveLabSetupError, match="DBUS connection failed"):
+        detect_firewalld_zone("ens37", runner=runner)
 
 
 def test_plan_rejects_client_outside_lab_subnet(monkeypatch) -> None:
@@ -338,8 +377,7 @@ def test_apply_plan_orchestrates_complete_idempotent_install(monkeypatch) -> Non
     enabled = [
         command[-1]
         for command in commands
-        if command[:4]
-        == ["/tool/sudo", "/tool/systemctl", "enable", "--now"]
+        if command[:4] == ["/tool/sudo", "/tool/systemctl", "enable", "--now"]
         and command[-1].startswith("ssh-security-app")
     ]
     assert enabled == [

@@ -171,10 +171,7 @@ def main(
             verify_installation(plan, runner=runner, use_sudo=True)
             return 0
         if not args.apply:
-            print(
-                "\nPreview only. Re-run with --apply and "
-                "--confirm-firewall-changes to install."
-            )
+            print("\nPreview only. Re-run with --apply and --confirm-firewall-changes to install.")
             return 0
         if not args.confirm_firewall_changes:
             raise LiveLabSetupError(
@@ -197,10 +194,7 @@ def main(
     print(f"  SSH target: {plan.server_ip}:{plan.ssh_port}")
     print(f"  Disposable client: {plan.client_ip}")
     print(f"  Temporary block duration: {plan.block_duration_seconds} seconds")
-    print(
-        "\nNo attack traffic was generated. The disposable client can now be "
-        "tested separately."
-    )
+    print("\nNo attack traffic was generated. The disposable client can now be tested separately.")
     return 0
 
 
@@ -522,7 +516,12 @@ def detect_firewalld_zone(
     completed = _captured_run(
         [firewall_cmd, "--get-zone-of-interface", interface],
         runner=runner,
+        allowed_returncodes=(0, 2),
     )
+    if completed.returncode == 2:
+        detail = (completed.stderr or completed.stdout).strip()
+        if detail.lower() != "no zone":
+            raise LiveLabSetupError(f"could not determine firewalld zone for {interface}: {detail}")
     zone = completed.stdout.strip()
     if not zone or zone == "no zone":
         default = _captured_run(
@@ -981,8 +980,7 @@ def _select_server_address(
                 return address
         available = ", ".join(item.address for item in addresses)
         raise LiveLabSetupError(
-            f"server IP {normalized} is not assigned to the lab interface; "
-            f"available: {available}"
+            f"server IP {normalized} is not assigned to the lab interface; available: {available}"
         )
     if len(addresses) != 1:
         available = ", ".join(item.address for item in addresses)

@@ -157,9 +157,15 @@ class AuthenticationEventRepository:
                 ).fetchall()
         return [_auth_event_from_row(row) for row in rows]
 
-    def count(self) -> int:
+    def count(self, *, source_ip: str | None = None) -> int:
         with self.database.connection() as connection:
-            row = connection.execute("SELECT COUNT(*) AS count FROM auth_events").fetchone()
+            if source_ip is None:
+                row = connection.execute("SELECT COUNT(*) AS count FROM auth_events").fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM auth_events WHERE source_ip = ?",
+                    (source_ip,),
+                ).fetchone()
         return int(row["count"])
 
     def list_window(
@@ -275,6 +281,30 @@ class NetworkEventRepository:
             ).fetchone()
         return _network_event_from_row(row) if row else None
 
+    def list_recent(
+        self,
+        *,
+        source_ip: str | None = None,
+        limit: int = 100,
+    ) -> list[NetworkEvent]:
+        bounded_limit = _limit(limit)
+        with self.database.connection() as connection:
+            if source_ip is None:
+                rows = connection.execute(
+                    "SELECT * FROM network_events ORDER BY event_time DESC LIMIT ?",
+                    (bounded_limit,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM network_events
+                    WHERE source_ip = ?
+                    ORDER BY event_time DESC LIMIT ?
+                    """,
+                    (source_ip, bounded_limit),
+                ).fetchall()
+        return [_network_event_from_row(row) for row in rows]
+
     def list_window(
         self,
         *,
@@ -310,9 +340,15 @@ class NetworkEventRepository:
                 ).fetchall()
         return [_network_event_from_row(row) for row in rows]
 
-    def count(self) -> int:
+    def count(self, *, source_ip: str | None = None) -> int:
         with self.database.connection() as connection:
-            row = connection.execute("SELECT COUNT(*) AS count FROM network_events").fetchone()
+            if source_ip is None:
+                row = connection.execute("SELECT COUNT(*) AS count FROM network_events").fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM network_events WHERE source_ip = ?",
+                    (source_ip,),
+                ).fetchone()
         return int(row["count"])
 
 
@@ -507,12 +543,27 @@ class DetectionRepository:
             ).fetchone()
         return _detection_from_row(row) if row else None
 
-    def list_recent(self, limit: int = 100) -> list[Detection]:
+    def list_recent(
+        self,
+        limit: int = 100,
+        *,
+        source_ip: str | None = None,
+    ) -> list[Detection]:
         with self.database.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM detections ORDER BY created_at DESC LIMIT ?",
-                (_limit(limit),),
-            ).fetchall()
+            if source_ip is None:
+                rows = connection.execute(
+                    "SELECT * FROM detections ORDER BY created_at DESC LIMIT ?",
+                    (_limit(limit),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM detections
+                    WHERE source_ip = ?
+                    ORDER BY created_at DESC LIMIT ?
+                    """,
+                    (source_ip, _limit(limit)),
+                ).fetchall()
         return [_detection_from_row(row) for row in rows]
 
     def count(self) -> int:
@@ -771,12 +822,27 @@ class BlockRepository:
             ).fetchall()
         return [_block_from_row(row) for row in rows]
 
-    def list_recent(self, limit: int = 100) -> list[BlockRecord]:
+    def list_recent(
+        self,
+        limit: int = 100,
+        *,
+        source_ip: str | None = None,
+    ) -> list[BlockRecord]:
         with self.database.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM blocks ORDER BY blocked_at DESC LIMIT ?",
-                (_limit(limit),),
-            ).fetchall()
+            if source_ip is None:
+                rows = connection.execute(
+                    "SELECT * FROM blocks ORDER BY blocked_at DESC LIMIT ?",
+                    (_limit(limit),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM blocks
+                    WHERE source_ip = ?
+                    ORDER BY blocked_at DESC LIMIT ?
+                    """,
+                    (source_ip, _limit(limit)),
+                ).fetchall()
         return [_block_from_row(row) for row in rows]
 
     def mark_removed(

@@ -126,8 +126,7 @@ def test_high_risk_detection_blocks_with_fully_mocked_firewall(
         blocks=repositories.blocks,
         audit=audit,
         health=health,
-        clock=lambda: datetime(2026, 7, 25, 12, tzinfo=timezone.utc)
-        + timedelta(seconds=121),
+        clock=lambda: datetime(2026, 7, 25, 12, tzinfo=timezone.utc) + timedelta(seconds=121),
     )
     expiration_result = expiration.process_once()
 

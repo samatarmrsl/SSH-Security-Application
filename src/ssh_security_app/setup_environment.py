@@ -40,9 +40,7 @@ class HostNetwork:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Prepare SSH, tcpdump capability, local configuration, and a test database."
-        )
+        description=("Prepare SSH, tcpdump capability, local configuration, and a test database.")
     )
     parser.add_argument(
         "--lab-interface",

@@ -51,9 +51,14 @@ def parse_project_rules(
             "-j",
             "DROP",
         ]
-        if len(body) < 2 or body[0] != "-s" or body[2:] not in (
-            expected_tail,
-            canonical_tail,
+        if (
+            len(body) < 2
+            or body[0] != "-s"
+            or body[2:]
+            not in (
+                expected_tail,
+                canonical_tail,
+            )
         ):
             unknown.append(rule)
             continue
