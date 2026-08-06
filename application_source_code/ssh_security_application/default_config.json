@@ -1,0 +1,49 @@
+{
+  "application": {
+    "name": "SSH Security Application",
+    "environment": "lab"
+  },
+  "detection": {
+    "window_seconds": 300,
+    "suspicious_failure_threshold": 5,
+    "blocking_failure_threshold": 10,
+    "high_risk_score_threshold": 70,
+    "recent_success_days": 30
+  },
+  "response": {
+    "mode": "simulation",
+    "block_duration_seconds": 1800,
+    "expiration_check_seconds": 60,
+    "firewall_backend": "iptables",
+    "iptables_chain": "SSH_SECURITY_APP",
+    "iptables_path": "/usr/sbin/iptables",
+    "command_timeout_seconds": 10
+  },
+  "authentication_sensor": {
+    "enabled": true,
+    "systemd_unit": "ssh.service",
+    "journalctl_path": "/usr/bin/journalctl",
+    "lookback_minutes": 10
+  },
+  "network_sensor": {
+    "enabled": true,
+    "interface": "enp0s8",
+    "ssh_port": 22,
+    "tcpdump_path": "/usr/bin/tcpdump",
+    "snapshot_length_bytes": 96,
+    "restart_delay_seconds": 5,
+    "max_restart_attempts": 3,
+    "protected_ipv4_addresses": []
+  },
+  "database": {
+    "path": "data/ssh_security_application.db",
+    "busy_timeout_seconds": 5,
+    "wal_mode": true
+  },
+  "logging": {
+    "level": "INFO",
+    "path": "logs/ssh_security_application.log",
+    "max_bytes": 10485760,
+    "backup_count": 5
+  }
+}

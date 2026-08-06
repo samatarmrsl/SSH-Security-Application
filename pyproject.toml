@@ -20,30 +20,30 @@ dev = [
 ]
 
 [project.scripts]
-ssh-security-app = "ssh_security_app.main:main"
+ssh-security-app = "ssh_security_application.main:main"
+setup-ssh-security-lab = "ssh_security_application.lab:main"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
+package-dir = { "" = "application_source_code" }
 
 [tool.setuptools.package-data]
-ssh_security_app = [
+ssh_security_application = [
   "default_config.json",
-  "db/*.sql",
-  "ui/static/*.html",
-  "ui/static/*.css",
-  "ui/static/*.js",
+  "sqlite_data_storage/*.sql",
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["application_source_code"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["tests"]
+testpaths = ["verification_and_validation"]
+python_files = ["verify_*.py"]
+python_functions = ["test_*", "verify_*"]
 
 [tool.coverage.run]
 branch = true
-source = ["ssh_security_app"]
+source = ["ssh_security_application"]
 
 [tool.coverage.report]
 show_missing = true
