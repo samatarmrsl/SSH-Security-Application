@@ -237,9 +237,3 @@ cap_net_admin,cap_net_raw=eip
 ```bash
 sudo journalctl -u ssh-security-application.service --no-pager -n 80
 ```
-
-## More Documentation
-
-- `project_documentation/beginner_code_walkthrough.md`
-- `project_documentation/code_file_guide.md`
-- `project_documentation/firewall_safety_rules.md`
