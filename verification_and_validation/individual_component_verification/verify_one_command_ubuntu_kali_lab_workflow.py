@@ -37,6 +37,7 @@ def test_one_command_apply_uses_default_lab_values_and_confirms_firewall(
         "120",
         "--apply",
         "--confirm-firewall-changes",
+        "--reset-host-iptables",
     ]
     assert "Useful verification commands" in capsys.readouterr().out
 
@@ -81,7 +82,26 @@ def test_one_command_can_override_lab_values(monkeypatch, tmp_path) -> None:
         "--skip-package-install",
         "--apply",
         "--confirm-firewall-changes",
+        "--reset-host-iptables",
     ]
+
+
+def test_one_command_can_keep_existing_iptables(monkeypatch, tmp_path) -> None:
+    calls = {}
+
+    def fake_installer(arguments, *, runner, repository_root):
+        calls["arguments"] = arguments
+        return 0
+
+    monkeypatch.setattr(workflow, "install_start_and_verify_lab", fake_installer)
+
+    result = workflow.main(
+        ["--apply", "--keep-existing-iptables"],
+        repository_root=tmp_path,
+    )
+
+    assert result == 0
+    assert "--reset-host-iptables" not in calls["arguments"]
 
 
 def test_one_command_watch_follows_service_logs_after_success(monkeypatch, tmp_path) -> None:

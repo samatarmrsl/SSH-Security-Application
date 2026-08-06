@@ -52,13 +52,26 @@ class TerminalInterface:
         block_response: BlockResponse | None,
         block_duration_seconds: int,
         exact_rule: str | None,
+        input_jump_rule: str | None = None,
+        source_profile: dict[str, Any] | None = None,
+        recent_auth_events: list[AuthenticationEvent] | None = None,
+        recent_network_events: list[NetworkEvent] | None = None,
     ) -> None:
         print(f"[{_clock()}] ALERT    Possible SSH brute-force activity")
         print(f"                     Source IP: {detection.source_ip}")
+        print(
+            "                     Window: "
+            f"{_display_time(detection.window_start)} -> {_display_time(detection.window_end)}"
+        )
         print(f"                     Failures: {detection.failed_count}")
         print(f"                     Unique usernames: {detection.unique_usernames}")
         print(f"                     TCP/22 connections: {detection.network_connection_count}")
         print(f"                     Attempts per minute: {detection.attempt_rate}")
+        self._print_source_profile(
+            source_profile=source_profile,
+            recent_auth_events=recent_auth_events or [],
+            recent_network_events=recent_network_events or [],
+        )
         print(f"[{_clock()}] SCORE    Risk score: {detection.risk_score}/100")
         print(f"                     Classification: {detection.classification.value.upper()}")
         for name, points in sorted(detection.risk_breakdown.items()):
@@ -75,8 +88,10 @@ class TerminalInterface:
                 print(f"                     Source IP: {block_response.block.source_ip}")
                 expires_at = _display_time(block_response.block.expires_at)
                 print(f"                     Expires: {expires_at}")
+            if input_jump_rule:
+                print(f"[{_clock()}] RULE     INPUT jump: {input_jump_rule}")
             if exact_rule:
-                print(f"[{_clock()}] RULE     {exact_rule}")
+                print(f"[{_clock()}] RULE     DROP rule: {exact_rule}")
 
     def print_unblock(self, block: BlockRecord, *, exact_rule: str, message: str) -> None:
         print(f"[{_clock()}] UNBLOCK  Manual unblock completed")
@@ -169,6 +184,47 @@ class TerminalInterface:
             ],
         )
 
+    def _print_source_profile(
+        self,
+        *,
+        source_profile: dict[str, Any] | None,
+        recent_auth_events: list[AuthenticationEvent],
+        recent_network_events: list[NetworkEvent],
+    ) -> None:
+        print("                     Source machine info: local observations only")
+        if source_profile:
+            print(f"                     IP category: {source_profile.get('ip_category', '-')}")
+            first_seen = _display_stored_time(source_profile.get("first_seen"))
+            last_seen = _display_stored_time(source_profile.get("last_seen"))
+            print(f"                     First seen: {first_seen}")
+            print(f"                     Last seen: {last_seen}")
+            print(
+                "                     Total failed SSH logins: "
+                f"{source_profile.get('failed_count_total', 0)}"
+            )
+            print(
+                "                     Total successful SSH logins: "
+                f"{source_profile.get('successful_count_total', 0)}"
+            )
+            print(
+                "                     Detections recorded: "
+                f"{source_profile.get('detection_count', 0)}"
+            )
+            print(f"                     Blocks recorded: {source_profile.get('block_count', 0)}")
+            print(
+                "                     Current block status: "
+                f"{source_profile.get('current_block_status') or '-'}"
+            )
+        usernames = sorted({event.username for event in recent_auth_events if event.username})
+        if usernames:
+            print(f"                     Usernames attempted: {_compact_list(usernames)}")
+        source_ports = sorted({event.source_port for event in recent_network_events})
+        if source_ports:
+            print(f"                     TCP source ports seen: {_compact_list(source_ports)}")
+        tcp_flags = sorted({event.tcp_flags for event in recent_network_events})
+        if tcp_flags:
+            print(f"                     TCP flags seen: {_compact_list(tcp_flags)}")
+
 
 def print_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> None:
     values = [tuple(str(value) for value in row) for row in rows]
@@ -192,3 +248,21 @@ def _display_time(value: datetime | None) -> str:
     if value is None:
         return "-"
     return value.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _display_stored_time(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return _display_time(parsed)
+
+
+def _compact_list(values: list[Any], *, limit: int = 8) -> str:
+    rendered = [str(value) for value in values]
+    if len(rendered) <= limit:
+        return ", ".join(rendered)
+    shown = ", ".join(rendered[:limit])
+    return f"{shown}, ... (+{len(rendered) - limit} more)"

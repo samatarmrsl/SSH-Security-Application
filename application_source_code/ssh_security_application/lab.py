@@ -67,6 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip apt package installation when packages are already installed",
     )
     parser.add_argument(
+        "--keep-existing-iptables",
+        action="store_true",
+        help=(
+            "do not reset the host iptables filter table before setup; by default "
+            "--apply starts the authorized lab from a clean firewall baseline"
+        ),
+    )
+    parser.add_argument(
         "--verify-only",
         action="store_true",
         help="only verify the already-installed live lab",
@@ -114,6 +122,8 @@ def main(
         installer_arguments.append("--verify-only")
     elif args.apply:
         installer_arguments.extend(["--apply", "--confirm-firewall-changes"])
+        if not args.keep_existing_iptables:
+            installer_arguments.append("--reset-host-iptables")
 
     if not args.apply and not args.verify_only:
         print("Preview mode: no services or firewall rules will be changed.")

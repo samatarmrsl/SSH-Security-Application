@@ -10,6 +10,7 @@ from ssh_security_application.live_lab_setup import (
     LiveLabPlan,
     LiveLabSetupError,
     _configure_host_firewall,
+    _reset_host_iptables_for_lab,
     _ufw_is_enabled,
     apply_plan,
     build_live_config,
@@ -80,6 +81,7 @@ def make_args(**overrides) -> argparse.Namespace:
         "verify_only": False,
         "confirm_firewall_changes": False,
         "skip_package_install": False,
+        "reset_host_iptables": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -193,6 +195,7 @@ def test_live_config_enables_two_minute_automatic_response() -> None:
         block_duration_seconds=120,
         firewall_frontend="firewalld",
         firewalld_zone="public",
+        reset_host_iptables=False,
     )
 
     document = build_live_config(
@@ -219,6 +222,7 @@ def test_firewalld_rules_are_limited_to_client_server_and_port(monkeypatch) -> N
         block_duration_seconds=120,
         firewall_frontend="firewalld",
         firewalld_zone="public",
+        reset_host_iptables=False,
     )
     commands = []
 
@@ -245,6 +249,72 @@ def test_firewalld_rules_are_limited_to_client_server_and_port(monkeypatch) -> N
         "/usr/bin/firewall-cmd",
         "--reload",
     ]
+
+
+def test_lab_iptables_reset_opens_filter_table_for_fresh_demo(capsys) -> None:
+    plan = LiveLabPlan(
+        repository_root=REPOSITORY_ROOT,
+        lab_interface="ens37",
+        server_ip="192.168.12.1",
+        client_ip="192.168.12.3",
+        protected_addresses=("192.168.12.1",),
+        ssh_port=22,
+        block_duration_seconds=120,
+        firewall_frontend="none",
+        firewalld_zone=None,
+        reset_host_iptables=True,
+    )
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    _reset_host_iptables_for_lab(
+        plan,
+        sudo="/usr/bin/sudo",
+        tools={"iptables": "/usr/sbin/iptables"},
+        runner=runner,
+    )
+
+    assert commands == [
+        [
+            "/usr/bin/sudo",
+            "/usr/sbin/iptables",
+            "-w",
+            "5",
+            "-t",
+            "filter",
+            "-P",
+            "INPUT",
+            "ACCEPT",
+        ],
+        [
+            "/usr/bin/sudo",
+            "/usr/sbin/iptables",
+            "-w",
+            "5",
+            "-t",
+            "filter",
+            "-P",
+            "FORWARD",
+            "ACCEPT",
+        ],
+        [
+            "/usr/bin/sudo",
+            "/usr/sbin/iptables",
+            "-w",
+            "5",
+            "-t",
+            "filter",
+            "-P",
+            "OUTPUT",
+            "ACCEPT",
+        ],
+        ["/usr/bin/sudo", "/usr/sbin/iptables", "-w", "5", "-t", "filter", "-F"],
+        ["/usr/bin/sudo", "/usr/sbin/iptables", "-w", "5", "-t", "filter", "-X"],
+    ]
+    assert "Lab iptables reset complete" in capsys.readouterr().out
 
 
 def test_ufw_enabled_flag_uses_configuration_not_oneshot_unit(tmp_path) -> None:
@@ -333,6 +403,7 @@ def test_apply_plan_orchestrates_complete_idempotent_install(monkeypatch) -> Non
         block_duration_seconds=120,
         firewall_frontend="none",
         firewalld_zone=None,
+        reset_host_iptables=True,
     )
     tool_names = (
         "sudo",
@@ -383,6 +454,15 @@ def test_apply_plan_orchestrates_complete_idempotent_install(monkeypatch) -> Non
     apply_plan(plan, runner=runner, install_packages=True)
 
     assert ["/tool/sudo", "/tool/apt-get", "update"] in commands
+    assert [
+        "/tool/sudo",
+        "/tool/iptables",
+        "-w",
+        "5",
+        "-t",
+        "filter",
+        "-F",
+    ] in commands
     assert any("/tool/useradd" in command for command in commands)
     assert any("/tool/rsync" in command for command in commands)
     assert any("firewall-cleanup" in command for command in commands)
@@ -412,6 +492,7 @@ def test_verify_installation_checks_services_chain_client_and_endpoints(
         block_duration_seconds=120,
         firewall_frontend="firewalld",
         firewalld_zone="public",
+        reset_host_iptables=False,
     )
 
     def runner(command, **_kwargs):

@@ -24,7 +24,6 @@ from ssh_security_application.config import (
 from ssh_security_application.constants import (
     AuthenticationEventType,
     BlockStatus,
-    Decision,
     HealthState,
     OperatingMode,
 )
@@ -47,7 +46,7 @@ from ssh_security_application.iptables_firewall_response.firewall import (
     FirewallReconciler,
     ResponseWorker,
 )
-from ssh_security_application.models import HealthStatus
+from ssh_security_application.models import BlockResponse, Detection, HealthStatus
 from ssh_security_application.modes import (
     OperatingModeManager,
 )
@@ -504,23 +503,24 @@ def _run_detection(
         print("No new detection met the threshold, or the evidence was already analyzed.")
         return 0
     command_failed = False
+    terminal = TerminalInterface()
     for detection in detections:
-        print(
-            f"Detection {detection.detection_id}: source={detection.source_ip}, "
-            f"score={detection.risk_score}, classification={detection.classification.value}, "
-            f"decision={detection.decision.value}"
-        )
-        print(f"Reason: {detection.decision_reason}")
-        print(f"Breakdown: {json.dumps(detection.risk_breakdown, sort_keys=True)}")
-        if detection.decision is Decision.WOULD_BLOCK:
-            minutes = settings.response.block_duration_seconds // 60
-            print(
-                f"Simulation: would block {detection.source_ip} for {minutes} minutes; "
-                "no firewall change was made."
-            )
         block_response = engine.block_responses.get(detection.detection_id)
+        exact_rule = None
+        input_jump_rule = None
+        if firewall_manager is not None:
+            input_jump_rule = firewall_manager.builder.input_jump_rule()
+            exact_rule = firewall_manager.builder.source_drop_rule(detection.source_ip)
+        _print_rich_detection(
+            terminal,
+            detection,
+            settings=settings,
+            repositories=repositories,
+            block_response=block_response,
+            exact_rule=exact_rule,
+            input_jump_rule=input_jump_rule,
+        )
         if block_response is not None:
-            print(f"Firewall response: {block_response.message}")
             command_failed = command_failed or not block_response.success
     return 1 if command_failed else 0
 
@@ -825,6 +825,7 @@ def _run_application_service(
         terminal=terminal,
         settings=settings,
         firewall=firewall,
+        repositories=repositories,
     )
     controller = ApplicationController(
         authentication_collector=authentication_collector,
@@ -833,6 +834,7 @@ def _run_application_service(
         response_worker=response_worker,
         audit=audit,
         health=health,
+        detection_interval_seconds=5,
     )
     stop_event = Event()
     previous_handlers: dict[signal.Signals, object] = {}
@@ -925,26 +927,89 @@ class _TerminalDetectionRunner:
         terminal: TerminalInterface,
         settings: Settings,
         firewall: FirewallManager | None,
+        repositories: RepositorySet,
     ) -> None:
         self.detector = detector
         self.terminal = terminal
         self.settings = settings
         self.firewall = firewall
+        self.repositories = repositories
 
     def run_all(self) -> list[object]:
         detections = self.detector.run_all()
         for detection in detections:
             block_response = self.detector.block_responses.get(detection.detection_id)
             exact_rule = None
+            input_jump_rule = None
             if block_response and block_response.block and self.firewall is not None:
+                input_jump_rule = self.firewall.builder.input_jump_rule()
                 exact_rule = self.firewall.builder.source_drop_rule(block_response.block.source_ip)
-            self.terminal.print_detection(
+            elif self.firewall is not None:
+                input_jump_rule = self.firewall.builder.input_jump_rule()
+                exact_rule = self.firewall.builder.source_drop_rule(detection.source_ip)
+            _print_rich_detection(
+                self.terminal,
                 detection,
+                settings=self.settings,
+                repositories=self.repositories,
                 block_response=block_response,
-                block_duration_seconds=self.settings.response.block_duration_seconds,
                 exact_rule=exact_rule,
+                input_jump_rule=input_jump_rule,
             )
         return detections
+
+
+def _print_rich_detection(
+    terminal: TerminalInterface,
+    detection: Detection,
+    *,
+    settings: Settings,
+    repositories: RepositorySet,
+    block_response: BlockResponse | None,
+    exact_rule: str | None,
+    input_jump_rule: str | None,
+) -> None:
+    terminal.print_detection(
+        detection,
+        block_response=block_response,
+        block_duration_seconds=settings.response.block_duration_seconds,
+        exact_rule=exact_rule,
+        input_jump_rule=input_jump_rule,
+        source_profile=repositories.ip_profiles.get(detection.source_ip),
+        recent_auth_events=_recent_auth_events_for_detection(repositories, detection),
+        recent_network_events=_recent_network_events_for_detection(repositories, detection),
+    )
+
+
+def _recent_auth_events_for_detection(
+    repositories: RepositorySet,
+    detection: Detection,
+):
+    events = repositories.auth_events.list_recent(
+        source_ip=detection.source_ip,
+        since=detection.window_start,
+        limit=25,
+    )
+    return [
+        event
+        for event in events
+        if detection.window_start <= event.event_time <= detection.window_end
+    ]
+
+
+def _recent_network_events_for_detection(
+    repositories: RepositorySet,
+    detection: Detection,
+):
+    events = repositories.network_events.list_recent(
+        source_ip=detection.source_ip,
+        limit=50,
+    )
+    return [
+        event
+        for event in events
+        if detection.window_start <= event.event_time <= detection.window_end
+    ]
 
 
 def _failures_in_window(

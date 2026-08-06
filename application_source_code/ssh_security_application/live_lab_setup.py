@@ -86,6 +86,7 @@ class LiveLabPlan:
     block_duration_seconds: int
     firewall_frontend: str
     firewalld_zone: str | None
+    reset_host_iptables: bool
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -136,6 +137,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-package-install",
         action="store_true",
         help="skip apt-get update/install when prerequisites are already present",
+    )
+    parser.add_argument(
+        "--reset-host-iptables",
+        action="store_true",
+        help=(
+            "authorized lab only: reset the host iptables filter table before "
+            "installing the project chain"
+        ),
     )
     return parser
 
@@ -224,6 +233,7 @@ def create_plan(
         block_duration_seconds=args.block_duration_seconds,
         firewall_frontend=frontend,
         firewalld_zone=zone,
+        reset_host_iptables=args.reset_host_iptables,
     )
 
 
@@ -240,6 +250,14 @@ def print_plan(plan: LiveLabPlan) -> None:
     print(f"  host firewall frontend: {plan.firewall_frontend}")
     if plan.firewalld_zone:
         print(f"  firewalld zone: {plan.firewalld_zone}")
+    print(
+        "  lab iptables reset: "
+        + (
+            "yes; filter table policies set to ACCEPT and custom chains flushed"
+            if plan.reset_host_iptables
+            else "no"
+        )
+    )
     print(f"  project chain: {PROJECT_CHAIN}")
 
 
@@ -281,6 +299,8 @@ def apply_plan(
     )
 
     _stop_existing_services(sudo=sudo, systemctl=tools["systemctl"], runner=runner)
+    if plan.reset_host_iptables:
+        _reset_host_iptables_for_lab(plan, sudo=sudo, tools=tools, runner=runner)
     _configure_host_firewall(plan, sudo=sudo, runner=runner)
     _ensure_service_account(sudo=sudo, tools=tools, runner=runner)
     _install_directories(sudo=sudo, tools=tools, runner=runner)
@@ -889,6 +909,46 @@ def _remove_stale_project_firewall(*, sudo: str, runner: CommandRunner) -> None:
         ],
         runner=runner,
     )
+
+
+def _reset_host_iptables_for_lab(
+    plan: LiveLabPlan,
+    *,
+    sudo: str,
+    tools: dict[str, str],
+    runner: CommandRunner,
+) -> None:
+    """Reset the filter table for a fresh authorized Ubuntu/Kali lab run."""
+
+    print(
+        "  Lab iptables reset: clearing filter-table rules before setup so "
+        f"{plan.client_ip} can reach {plan.server_ip}:{plan.ssh_port} before detection."
+    )
+    iptables = tools["iptables"]
+    for policy_chain in ("INPUT", "FORWARD", "OUTPUT"):
+        _checked_run(
+            [
+                sudo,
+                iptables,
+                "-w",
+                "5",
+                "-t",
+                "filter",
+                "-P",
+                policy_chain,
+                "ACCEPT",
+            ],
+            runner=runner,
+        )
+    _checked_run(
+        [sudo, iptables, "-w", "5", "-t", "filter", "-F"],
+        runner=runner,
+    )
+    _checked_run(
+        [sudo, iptables, "-w", "5", "-t", "filter", "-X"],
+        runner=runner,
+    )
+    print("  Lab iptables reset complete: filter table is open before project rules.")
 
 
 def _restore_runtime_ownership(

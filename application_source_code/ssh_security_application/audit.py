@@ -40,6 +40,7 @@ def configure_logging(config: LoggingConfig) -> None:
     formatter = JsonFormatter()
 
     console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
     console.setFormatter(formatter)
 
     log_path = Path(config.path)

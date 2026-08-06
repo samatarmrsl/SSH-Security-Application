@@ -197,9 +197,10 @@ def test_full_fixture_detection_command(tmp_path, capsys) -> None:
 
     output = capsys.readouterr().out
     assert result == 0
-    assert "score=80" in output
-    assert "classification=High Risk" in output
-    assert "decision=WOULD_BLOCK" in output
+    assert "Risk score: 80/100" in output
+    assert "Classification: HIGH RISK" in output
+    assert "DECISION WOULD_BLOCK" in output
+    assert "Source machine info: local observations only" in output
     repositories = RepositorySet(Database(tmp_path / "cli.db"))
     assert repositories.health.get("correlation_engine").status.value == "HEALTHY"
 
@@ -265,7 +266,7 @@ def test_log_only_fixture_detection_never_creates_a_block(tmp_path, capsys) -> N
     )
 
     assert result == 0
-    assert "decision=LOG_DETECTION" in capsys.readouterr().out
+    assert "DECISION LOG_DETECTION" in capsys.readouterr().out
     repositories = RepositorySet(Database(tmp_path / "cli.db"))
     assert repositories.blocks.get_active("192.168.56.40") is None
 
@@ -319,3 +320,4 @@ def test_monitor_command_builds_unprivileged_pipeline_and_stops(
     assert result == 0
     assert len(controllers) == 1
     assert controllers[0]["response_worker"] is None
+    assert controllers[0]["detection_interval_seconds"] == 5

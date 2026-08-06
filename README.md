@@ -47,6 +47,7 @@ This one command:
 - installs the app under `/opt/ssh-security-application`;
 - writes config to `/etc/ssh-security-app/config.json`;
 - creates the SQLite database;
+- resets the lab iptables filter table so old rules do not block Kali before testing;
 - creates the `SSH_SECURITY_APP` iptables chain;
 - starts the systemd services;
 - watches live logs.
@@ -71,6 +72,13 @@ python3 run_lab.py \
   --block-duration-seconds 120 \
   --apply \
   --watch
+```
+
+To keep existing iptables rules instead of starting from a clean lab firewall
+baseline:
+
+```bash
+python3 run_lab.py --apply --watch --keep-existing-iptables
 ```
 
 ## Main Commands
