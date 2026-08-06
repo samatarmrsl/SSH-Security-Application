@@ -30,6 +30,53 @@ The reference setup is:
 | Security VM | Ubuntu 20.04 | `192.168.12.1` | Runs OpenSSH and this application |
 | Attacker VM | Kali Linux | `192.168.12.3` | Generates authorized test traffic |
 
+
+## Workflow
+
+Setup
+  ↓
+Collect authentication and network evidence
+  ↓
+Validate, normalize, and remove duplicates
+  ↓
+Store evidence in SQLite
+  ↓
+Correlate activity by source IP
+  ↓
+Calculate the risk score
+  ↓
+Apply the decision safety checks
+  ↓
+Temporarily block an eligible source
+  ↓
+Automatically or manually remove the exact rule
+
+## Command Flow
+python3 run_lab.py --apply --watch
+        ↓
+run_lab.py
+        ↓
+lab.py
+        ↓
+live_lab_setup.py
+        ↓
+Install packages, application, config, database, and services
+        ↓
+ssh-security-application-firewall.service
+        ↓
+Create SSH_SECURITY_APP
+        ↓
+ssh-security-application.service
+        ↓
+ssh-security-app ... monitor
+        ↓
+main.py
+        ↓
+service.py
+        ↓
+Collectors + detection + firewall response + terminal output
+
+
 ## Quick Setup
 
 Run this on the Ubuntu Security VM:
