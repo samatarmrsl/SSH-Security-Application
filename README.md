@@ -1,5 +1,5 @@
 > [!NOTE]
-> This project was created with the help of OpenAI Codex.
+> This Implementation was created with the help of OpenAI Codex.
 
 # SSH Security Application
 
