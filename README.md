@@ -32,7 +32,7 @@ The reference setup is:
 
 
 ## Workflow
-
+```text
 Setup
   ↓
 Collect authentication and network evidence
@@ -50,8 +50,10 @@ Apply the decision safety checks
 Temporarily block an eligible source
   ↓
 Automatically or manually remove the exact rule
+```
 
 ## Command Flow
+```text
 python3 run_lab.py --apply --watch
         ↓
 run_lab.py
@@ -75,7 +77,7 @@ main.py
 service.py
         ↓
 Collectors + detection + firewall response + terminal output
-
+```
 
 ## Quick Setup
 
