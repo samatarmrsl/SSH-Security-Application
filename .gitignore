@@ -28,3 +28,8 @@ logs/*
 .idea/
 .vscode/
 *.swp
+
+# Local-only Codex/report notes
+AGENTS.md
+FINAL_REPORT*.md
+project_documentation/
