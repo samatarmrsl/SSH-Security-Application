@@ -13,10 +13,8 @@ venv/
 
 # Local configuration and runtime data
 config/local.json
-data/*
-!data/.gitkeep
-logs/*
-!logs/.gitkeep
+data/
+logs/
 *.db
 *.db-shm
 *.db-wal
