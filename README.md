@@ -117,7 +117,7 @@ Watch the running service:
 sudo journalctl -fu ssh-security-application.service
 ```
 
-## Kali Test
+## Attacker Test
 
 Run this only in your authorized lab.
 
