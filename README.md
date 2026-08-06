@@ -1,3 +1,5 @@
+This project was created with the help of OpenAI Codex.
+
 # SSH Security Application
 
 A simple terminal-based SSH brute-force detection and response tool for an
